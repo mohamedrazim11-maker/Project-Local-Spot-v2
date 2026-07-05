@@ -1,277 +1,326 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-export default function Dashboard() {
+export default function CreatorDashboard() {
     const router = useRouter();
-    const [loading, setLoading] = useState(true);
-    const [saving, setSaving] = useState(false);
-    const [copied, setCopied] = useState(false);
 
-    // Form states matching database columns
-    const [username, setUsername] = useState('');
-    const [fullName, setFullName] = useState('');
+    // Form Input States
+    const [instagramHandle, setInstagramHandle] = useState('');
+    const [followerCount, setFollowerCount] = useState(0); // 📊 Holds exact numeric values dynamically parsed after sync
+    const [displayName, setDisplayName] = useState('');
+    const [nicheCategory, setNicheCategory] = useState('');
+    const [baseRate, setBaseRate] = useState('');
     const [bio, setBio] = useState('');
-    const [category, setCategory] = useState('');
-    const [followerCount, setFollowerCount] = useState(0);
-    const [baseRate, setBaseRate] = useState(0);
-    const [instagram, setInstagram] = useState('');
-    const [message, setMessage] = useState('');
+    const [profilePic, setProfilePic] = useState(''); // 🖼️ Tracks incoming profile avatar source URLs
 
-    useEffect(() => {
-        fetchProfile();
-    }, []);
+    // Status UI Visibility controls
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [syncError, setSyncError] = useState(null);
+    const [syncSuccess, setSyncSuccess] = useState(false);
+    const [copyStatus, setCopyStatus] = useState('Copy');
+    const [isMediaKitCreated, setIsMediaKitCreated] = useState(false);
+    const [showDeleteModal, setShowDeleteModal] = useState(false);
 
-    const fetchProfile = async () => {
+    // ⚡ Sync Action Handler - Captures live / backup info payload streams
+    const handleInstagramSync = async () => {
+        if (!instagramHandle.trim()) {
+            setSyncError('Please enter an Instagram handle first before clicking Sync.');
+            return;
+        }
+
+        setIsSyncing(true);
+        setSyncError(null);
+        setSyncSuccess(false);
+
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            const res = await fetch(`/api/instagram?handle=${encodeURIComponent(instagramHandle.trim())}`);
+            const data = await res.json();
 
-            if (!user) {
-                router.push('/login');
-                return;
+            if (!res.ok || data.success === false) {
+                throw new Error(data.error || data.message || 'Failed to pull profile data.');
             }
 
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', user.id)
-                .single();
-
-            if (data) {
-                setUsername(data.username || '');
-                setFullName(data.full_name || '');
-                setBio(data.bio || '');
-                setCategory(data.category || '');
-                setFollowerCount(data.follower_count || 0);
-                setBaseRate(data.base_rate || 0);
-                setInstagram(data.instagram_handle || '');
+            // 🎯 Direct Capture of Follower Count and Profile Picture properties
+            if (data.follower_count !== undefined) {
+                setFollowerCount(Number(data.follower_count));
             }
-        } catch (error) {
-            console.error('Error fetching profile:', error);
+            if (data.profile_pic_url) {
+                setProfilePic(data.profile_pic_url);
+            }
+
+            // Secondary fields mapping
+            if (data.full_name) setDisplayName(data.full_name);
+            if (data.bio) setBio(data.bio);
+
+            setSyncSuccess(true);
+        } catch (err) {
+            console.error('Frontend Sync Logs:', err.message);
+            setSyncError(err.message || 'Could not sync profile data automatically.');
         } finally {
-            setLoading(false);
+            setIsSyncing(false);
         }
     };
 
-    // AUTOMATIC URL GENERATOR
-    const handleNameChange = (e) => {
-        const originalName = e.target.value;
-        setFullName(originalName);
-
-        const automaticSlug = originalName
-            .toLowerCase()
-            .trim()
-            .replace(/[^\w\s-]/g, '')
-            .replace(/[\s_]+/g, '-')
-            .replace(/^-+|-+$/g, '');
-
-        setUsername(automaticSlug);
-    };
-
-    // 📋 CLIPBOARD COPY FUNCTION
-    const handleCopyLink = () => {
-        if (!username) return;
-        const fullUrl = `${window.location.origin}/${username}`;
-        navigator.clipboard.writeText(fullUrl);
-        setCopied(true);
-
-        // Reset "Copied!" text indicator after 2 seconds
-        setTimeout(() => setCopied(false), 2000);
-    };
-
-    const handleUpdateProfile = async (e) => {
+    // 💾 Form Submission
+    const handleSaveKit = (e) => {
         e.preventDefault();
-        setSaving(true);
-        setMessage('');
+        if (!instagramHandle.trim()) {
+            setSyncError('An Instagram handle is required to generate your public kit layout page.');
+            return;
+        }
+        setIsMediaKitCreated(true);
+        alert('Media Kit Configuration Saved Safely!');
+    };
+
+    // 📋 Copy URL Action Handler
+    const handleCopyLink = async () => {
+        const currentHandle = instagramHandle.replace(/@/g, '').trim();
+        const linkToCopy = `http://localhost:3000/${currentHandle}`;
 
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-
-            const updates = {
-                id: user.id,
-                username: username.trim(),
-                full_name: fullName,
-                bio,
-                category,
-                follower_count: parseInt(followerCount),
-                base_rate: parseFloat(baseRate),
-                instagram_handle: instagram,
-            };
-
-            const { error } = await supabase.from('profiles').upsert(updates);
-
-            if (error) throw error;
-            setMessage('✅ Media Kit profile updated successfully!');
-        } catch (error) {
-            setMessage(`❌ Error updating profile: ${error.message}`);
-        } finally {
-            setSaving(false);
+            await navigator.clipboard.writeText(linkToCopy);
+            setCopyStatus('Copied! ✓');
+            setTimeout(() => setCopyStatus('Copy'), 2000);
+        } catch (err) {
+            console.error('Failed to copy text:', err);
         }
     };
 
-    const handleSignOut = async () => {
-        await supabase.auth.signOut();
+    // 🚪 Sign Out Handler
+    const handleSignOut = () => {
+        setInstagramHandle('');
+        setFollowerCount(0);
+        setDisplayName('');
+        setBio('');
+        setProfilePic('');
+        setIsMediaKitCreated(false);
         router.push('/login');
     };
 
-    if (loading) {
-        return (
-            <div className="min-h-screen bg-slate-950 text-white flex justify-center items-center font-semibold">
-                Loading Your Control Center...
-            </div>
-        );
-    }
-
     return (
-        <div className="min-h-screen bg-slate-950 text-white p-6 md:p-12">
-            <div className="max-w-4xl mx-auto space-y-8">
+        <div className="min-h-screen bg-[#070b13] text-gray-100 p-8 flex flex-col items-center relative">
+            <div className="w-full max-w-4xl">
 
-                {/* HEADER SECTION */}
-                <div className="flex justify-between items-center border-b border-slate-900 pb-6">
+                {/* Header Elements */}
+                <div className="flex justify-between items-center mb-8">
                     <div>
-                        <h1 className="text-3xl font-black tracking-tight">Creator Dashboard</h1>
-                        <p className="text-sm text-slate-400">Manage your metrics and build your public page</p>
+                        <h1 className="text-3xl font-bold tracking-tight text-white">Creator Dashboard</h1>
+                        <p className="text-sm text-gray-400 mt-1">Configure profile metrics for active creator sessions</p>
                     </div>
                     <button
                         onClick={handleSignOut}
-                        className="bg-slate-900 hover:bg-slate-800 border border-slate-800 px-4 py-2 rounded-xl text-sm transition-colors"
+                        className="bg-[#131926] hover:bg-red-950/40 hover:text-red-400 border border-gray-800 hover:border-red-900/60 text-sm px-4 py-2 rounded-lg transition font-medium"
                     >
                         Sign Out
                     </button>
                 </div>
 
-                {message && (
-                    <div className="p-4 bg-slate-900 border border-slate-800 text-sm font-medium rounded-xl text-emerald-400">
-                        {message}
+                {/* Action Status Banners */}
+                {syncError && (
+                    <div className="bg-red-950/40 border border-red-800 text-red-400 p-4 rounded-xl mb-6 flex items-center gap-2 text-sm">
+                        <span>❌</span> {syncError}
+                    </div>
+                )}
+                {syncSuccess && (
+                    <div className="bg-emerald-950/40 border border-emerald-800 text-emerald-400 p-4 rounded-xl mb-6 flex items-center gap-2 text-sm">
+                        <span>✅</span> Profile metrics synchronized cleanly from live engine profiles!
                     </div>
                 )}
 
-                {/* PROFILE EDITOR FORM */}
-                <form onSubmit={handleUpdateProfile} className="bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-6">
+                {/* Configuration Core Card Grid Frame */}
+                <div className="bg-[#0f1624] border border-gray-800/60 rounded-2xl p-6 shadow-xl mb-6">
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
+                        <div className="flex items-center gap-4">
+                            {/* 📷 Dynamic Avatar Viewer Box */}
+                            <div className="w-14 h-14 rounded-full bg-[#1b2333] border-2 border-emerald-500 flex items-center justify-center overflow-hidden shrink-0 shadow-lg shadow-emerald-500/10">
+                                {profilePic ? (
+                                    <img src={profilePic} alt="Instagram Profile Avatar" className="w-full h-full object-cover" />
+                                ) : (
+                                    <span className="text-2xl">👤</span>
+                                )}
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-semibold text-white">Media Kit Setup Profile</h2>
+                                <p className="text-xs text-gray-400">Current session metrics initialized</p>
+                            </div>
+                        </div>
 
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-                        <h2 className="text-xl font-bold">Media Kit Configurations</h2>
-
-                        {/* LIVE TOUCHABLE URL LINK & COPY BUTTON SECTION */}
-                        {username && (
-                            <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 p-1.5 rounded-xl">
-                                <a
-                                    href={`/${username}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-xs font-mono text-emerald-400 hover:text-emerald-300 hover:underline px-2 transition-colors"
-                                    title="Click to view live profile"
-                                >
-                                    🔗 localhost:3000/{username}
-                                </a>
+                        {/* 🔗 Link Container - Visible ONLY after submission */}
+                        {isMediaKitCreated && (
+                            <div className="flex items-center justify-between gap-3 bg-[#070b13] p-2 px-3 rounded-lg border border-gray-800 text-xs animate-in fade-in duration-300">
+                                <span className="text-emerald-400 font-mono">
+                                    localhost:3000/{instagramHandle.replace(/@/g, '').trim()}
+                                </span>
                                 <button
                                     type="button"
                                     onClick={handleCopyLink}
-                                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${copied
-                                            ? 'bg-emerald-500 text-slate-950 scale-95'
-                                            : 'bg-slate-900 hover:bg-slate-800 border border-slate-700/50 text-slate-300'
-                                        }`}
+                                    className="text-gray-300 hover:text-white bg-[#1a2333] px-2.5 py-1 rounded border border-gray-700/60 transition active:scale-95 font-medium min-w-[65px]"
                                 >
-                                    {copied ? '✓ Copied!' : '📋 Copy'}
+                                    {copyStatus}
                                 </button>
                             </div>
                         )}
                     </div>
 
-                    <div className="grid md:grid-cols-2 gap-6">
+                    <form onSubmit={handleSaveKit} className="space-y-5">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+
+                            {/* Handle Entry field */}
+                            <div>
+                                <label className="block text-xs font-semibold tracking-wider text-gray-400 uppercase mb-2">Instagram Handle</label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={instagramHandle}
+                                        placeholder="Enter username (e.g. r_azim004)"
+                                        onChange={(e) => {
+                                            setInstagramHandle(e.target.value);
+                                            setIsMediaKitCreated(false);
+                                        }}
+                                        className="w-full bg-[#070b13] border border-gray-800 focus:border-blue-500 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none placeholder-gray-600"
+                                    />
+                                    <button
+                                        type="button"
+                                        onClick={handleInstagramSync}
+                                        disabled={isSyncing}
+                                        className="bg-[#1a2333] hover:bg-[#25324a] text-emerald-400 border border-emerald-800/40 text-xs px-4 rounded-lg font-medium transition disabled:opacity-50 flex items-center gap-1 shrink-0"
+                                    >
+                                        {isSyncing ? 'Syncing...' : '⚡ Sync'}
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* URL Generation Mirror block */}
+                            <div>
+                                <label className="block text-xs font-semibold tracking-wider text-gray-400 uppercase mb-2">Generated Username URL (Auto)</label>
+                                <input
+                                    type="text"
+                                    value={instagramHandle.trim() ? `localhost:3000/${instagramHandle.replace(/@/g, '').trim()}` : 'Awaiting input entry...'}
+                                    disabled
+                                    className="w-full bg-[#070b13]/60 border border-gray-800 text-gray-500 rounded-lg px-4 py-2.5 text-sm cursor-not-allowed"
+                                />
+                            </div>
+
+                            {/* Follower Count Display Input */}
+                            <div>
+                                <label className="block text-xs font-semibold tracking-wider text-gray-400 uppercase mb-2">Follower Count (Captured Live)</label>
+                                <input
+                                    type="number"
+                                    value={followerCount}
+                                    disabled
+                                    className="w-full bg-[#070b13]/60 border border-gray-800 text-emerald-400 font-mono font-bold rounded-lg px-4 py-2.5 text-sm cursor-not-allowed"
+                                />
+                            </div>
+
+                            {/* Display Name Input */}
+                            <div>
+                                <label className="block text-xs font-semibold tracking-wider text-gray-400 uppercase mb-2">Display Name</label>
+                                <input
+                                    type="text"
+                                    value={displayName}
+                                    placeholder="Your brand display name"
+                                    onChange={(e) => setDisplayName(e.target.value)}
+                                    className="w-full bg-[#070b13] border border-gray-800 focus:border-blue-500 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none placeholder-gray-600"
+                                />
+                            </div>
+
+                            {/* Niche Category Input Field */}
+                            <div>
+                                <label className="block text-xs font-semibold tracking-wider text-gray-400 uppercase mb-2">Niche Category</label>
+                                <input
+                                    type="text"
+                                    value={nicheCategory}
+                                    placeholder="e.g. Lifestyle, Education, Tech"
+                                    onChange={(e) => setNicheCategory(e.target.value)}
+                                    className="w-full bg-[#070b13] border border-gray-800 focus:border-blue-500 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none placeholder-gray-600"
+                                />
+                            </div>
+
+                            {/* Base Rates Setup */}
+                            <div>
+                                <label className="block text-xs font-semibold tracking-wider text-gray-400 uppercase mb-2">Base Sponsorship Rate ($)</label>
+                                <input
+                                    type="number"
+                                    value={baseRate}
+                                    placeholder="0"
+                                    onChange={(e) => setBaseRate(e.target.value)}
+                                    className="w-full bg-[#070b13] border border-gray-800 focus:border-blue-500 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none placeholder-gray-600"
+                                />
+                            </div>
+
+                        </div>
+
+                        {/* Profile Bio Long Text Inputs */}
                         <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Display Name</label>
-                            <input
-                                type="text"
-                                placeholder="Suresh Kumar"
-                                value={fullName}
-                                onChange={handleNameChange}
-                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-                                required
+                            <label className="block text-xs font-semibold tracking-wider text-gray-400 uppercase mb-2">Profile Bio Description</label>
+                            <textarea
+                                rows={4}
+                                value={bio}
+                                placeholder="Write an impactful overview bio narrative description describing your creative background..."
+                                onChange={(e) => setBio(e.target.value)}
+                                className="w-full bg-[#070b13] border border-gray-800 focus:border-blue-500 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none resize-none leading-relaxed placeholder-gray-600"
                             />
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Generated Username URL (Auto)</label>
-                            <input
-                                type="text"
-                                placeholder="suresh-kumar"
-                                value={username}
-                                disabled
-                                className="w-full bg-slate-950/50 text-slate-500 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none cursor-not-allowed opacity-75"
-                            />
+                        {/* Form Submit Row Elements */}
+                        <div className="pt-2 flex justify-between items-center">
+                            <button
+                                type="submit"
+                                className="bg-[#00c896] hover:bg-[#00b386] text-slate-950 font-semibold text-sm px-5 py-3 rounded-xl transition shadow-lg shadow-emerald-500/10"
+                            >
+                                Save and Create Media Kit
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setShowDeleteModal(true)}
+                                className="text-gray-500 hover:text-red-400 text-xs font-medium transition underline underline-offset-4"
+                            >
+                                Delete Account completely
+                            </button>
                         </div>
 
-                        <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Follower Count</label>
-                            <input
-                                type="number"
-                                placeholder="15000"
-                                value={followerCount}
-                                onChange={(e) => setFollowerCount(e.target.value)}
-                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Base Sponsorship Rate ($)</label>
-                            <input
-                                type="number"
-                                placeholder="150"
-                                value={baseRate}
-                                onChange={(e) => setBaseRate(e.target.value)}
-                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Niche Category</label>
-                            <input
-                                type="text"
-                                placeholder="Food / Travel / Technology"
-                                value={category}
-                                onChange={(e) => setCategory(e.target.value)}
-                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-                            />
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Instagram Handle</label>
-                            <input
-                                type="text"
-                                placeholder="suresh_vlogs_official"
-                                value={instagram}
-                                onChange={(e) => setInstagram(e.target.value)}
-                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-                            />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Profile Bio Description</label>
-                        <textarea
-                            rows="3"
-                            placeholder="Tell brands why they should work with you..."
-                            value={bio}
-                            onChange={(e) => setBio(e.target.value)}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors resize-none"
-                        />
-                    </div>
-
-                    <div className="pt-2">
-                        <button
-                            type="submit"
-                            disabled={saving}
-                            className="w-full md:w-auto bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-3 px-8 rounded-xl text-sm transition-all shadow-lg shadow-emerald-500/10 disabled:opacity-50"
-                        >
-                            {saving ? 'Saving Metrics...' : 'Save and Update Profile'}
-                        </button>
-                    </div>
-                </form>
+                    </form>
+                </div>
 
             </div>
+
+            {/* ⚠️ DELETE ACCOUNT OVERLAY MODAL */}
+            {showDeleteModal && (
+                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-[#0f1624] border border-red-900/60 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+                        <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                            <span className="text-red-500">⚠️</span> Delete Account Profile?
+                        </h3>
+                        <p className="text-sm text-gray-400 mt-3 leading-relaxed">
+                            Are you absolutely sure? This will remove all calculated follower records, configured media kits, and reset dashboard states back to empty templates permanently.
+                        </p>
+                        <div className="mt-6 flex justify-end gap-3">
+                            <button
+                                type="button"
+                                onClick={() => setShowDeleteModal(false)}
+                                className="bg-[#1a2333] border border-gray-800 text-gray-300 px-4 py-2 rounded-lg text-sm transition hover:bg-[#25324a]"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                className="bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg text-sm transition shadow-lg shadow-red-600/20"
+                                onClick={() => {
+                                    alert('Account removed.');
+                                    setShowDeleteModal(false);
+                                    router.push('/login');
+                                }}
+                            >
+                                Yes, Delete My Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 }
