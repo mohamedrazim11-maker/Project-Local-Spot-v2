@@ -8,8 +8,9 @@ export default function Dashboard() {
     const router = useRouter();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [copied, setCopied] = useState(false);
 
-    // Form states matching our database schema columns
+    // Form states matching database columns
     const [username, setUsername] = useState('');
     const [fullName, setFullName] = useState('');
     const [bio, setBio] = useState('');
@@ -23,7 +24,6 @@ export default function Dashboard() {
         fetchProfile();
     }, []);
 
-    // 1. Fetch existing profile data if it exists
     const fetchProfile = async () => {
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -55,7 +55,32 @@ export default function Dashboard() {
         }
     };
 
-    // 2. Save or Update profile data in Supabase
+    // AUTOMATIC URL GENERATOR
+    const handleNameChange = (e) => {
+        const originalName = e.target.value;
+        setFullName(originalName);
+
+        const automaticSlug = originalName
+            .toLowerCase()
+            .trim()
+            .replace(/[^\w\s-]/g, '')
+            .replace(/[\s_]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+        setUsername(automaticSlug);
+    };
+
+    // 📋 CLIPBOARD COPY FUNCTION
+    const handleCopyLink = () => {
+        if (!username) return;
+        const fullUrl = `${window.location.origin}/${username}`;
+        navigator.clipboard.writeText(fullUrl);
+        setCopied(true);
+
+        // Reset "Copied!" text indicator after 2 seconds
+        setTimeout(() => setCopied(false), 2000);
+    };
+
     const handleUpdateProfile = async (e) => {
         e.preventDefault();
         setSaving(true);
@@ -66,7 +91,7 @@ export default function Dashboard() {
 
             const updates = {
                 id: user.id,
-                username: username.toLowerCase().trim(),
+                username: username.trim(),
                 full_name: fullName,
                 bio,
                 category,
@@ -86,7 +111,6 @@ export default function Dashboard() {
         }
     };
 
-    // 3. Log Out function
     const handleSignOut = async () => {
         await supabase.auth.signOut();
         router.push('/login');
@@ -126,29 +150,57 @@ export default function Dashboard() {
 
                 {/* PROFILE EDITOR FORM */}
                 <form onSubmit={handleUpdateProfile} className="bg-slate-900 border border-slate-800 rounded-3xl p-8 space-y-6">
-                    <h2 className="text-xl font-bold border-b border-slate-800 pb-4">Media Kit Configurations</h2>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                        <h2 className="text-xl font-bold">Media Kit Configurations</h2>
+
+                        {/* LIVE TOUCHABLE URL LINK & COPY BUTTON SECTION */}
+                        {username && (
+                            <div className="flex items-center gap-2 bg-slate-950 border border-slate-800 p-1.5 rounded-xl">
+                                <a
+                                    href={`/${username}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-xs font-mono text-emerald-400 hover:text-emerald-300 hover:underline px-2 transition-colors"
+                                    title="Click to view live profile"
+                                >
+                                    🔗 localhost:3000/{username}
+                                </a>
+                                <button
+                                    type="button"
+                                    onClick={handleCopyLink}
+                                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${copied
+                                            ? 'bg-emerald-500 text-slate-950 scale-95'
+                                            : 'bg-slate-900 hover:bg-slate-800 border border-slate-700/50 text-slate-300'
+                                        }`}
+                                >
+                                    {copied ? '✓ Copied!' : '📋 Copy'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
                     <div className="grid md:grid-cols-2 gap-6">
-                        <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Unique Username</label>
-                            <input
-                                type="text"
-                                placeholder="suresh-vlogs"
-                                value={username}
-                                onChange={(e) => setUsername(e.target.value)}
-                                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
-                                required
-                            />
-                        </div>
-
                         <div>
                             <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Display Name</label>
                             <input
                                 type="text"
                                 placeholder="Suresh Kumar"
                                 value={fullName}
-                                onChange={(e) => setFullName(e.target.value)}
+                                onChange={handleNameChange}
                                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors"
+                                required
+                            />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Generated Username URL (Auto)</label>
+                            <input
+                                type="text"
+                                placeholder="suresh-kumar"
+                                value={username}
+                                disabled
+                                className="w-full bg-slate-950/50 text-slate-500 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none cursor-not-allowed opacity-75"
                             />
                         </div>
 
@@ -175,7 +227,7 @@ export default function Dashboard() {
                         </div>
 
                         <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Niche Niche Category</label>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Niche Category</label>
                             <input
                                 type="text"
                                 placeholder="Food / Travel / Technology"
