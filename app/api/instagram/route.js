@@ -5,62 +5,68 @@ export async function GET(request) {
     const handle = searchParams.get('handle');
 
     if (!handle) {
-        return NextResponse.json({ error: 'Instagram handle is required' }, { status: 400 });
+        return NextResponse.json({ success: false, error: 'Instagram handle is required' }, { status: 400 });
     }
 
     const cleanHandle = handle.replace(/@/g, '').trim();
 
-    // 🔒 Securely reading keys from your local environment configuration
     const apiKey = process.env.RAPIDAPI_KEY;
     const apiHost = process.env.RAPIDAPI_HOST;
 
-    if (!apiKey || !apiHost) {
-        // Graceful fallback so your UI still works during presentations if the file loading fails
-        return handlePresentationFallback(cleanHandle);
-    }
-
     try {
-        const response = await fetch(`https://${apiHost}/info?username=${cleanHandle}`, {
-            method: 'GET',
+        const response = await fetch(`https://${apiHost}/api/instagram/userInfo`, {
+            method: 'POST',
             headers: {
-                'X-RapidAPI-Key': apiKey,
-                'X-RapidAPI-Host': apiHost,
+                // 🎯 EXACT LOWERCASE MATCH FROM THE IMAGE_54C104.PNG SNIPPET:
+                'x-rapidapi-key': apiKey,
+                'x-rapidapi-host': apiHost,
+                'Content-Type': 'application/json',
                 'Accept': 'application/json',
             },
+            body: JSON.stringify({ username: cleanHandle }),
         });
 
-        if (response.status === 403 || response.status === 401 || !response.ok) {
-            return handlePresentationFallback(cleanHandle);
+        if (!response.ok) {
+            const serverErrorText = await response.text();
+            let structuredMessage = `Error (${response.status})`;
+            try {
+                const errJson = JSON.parse(serverErrorText);
+                structuredMessage = errJson.message || structuredMessage;
+            } catch (e) {
+                structuredMessage = serverErrorText || structuredMessage;
+            }
+            return NextResponse.json({ success: false, error: structuredMessage }, { status: response.status });
         }
 
         const json = await response.json();
-        const profileData = json.data || json;
+
+        // Dig into the nested response path: result -> array index 0 -> user
+        let profileData = null;
+        if (json.result && json.result.length > 0 && json.result[0].user) {
+            profileData = json.result[0].user;
+        } else {
+            profileData = json.data || json.user || json;
+        }
 
         if (!profileData) {
-            return handlePresentationFallback(cleanHandle);
+            return NextResponse.json({ success: false, error: 'Could not resolve the user data profile path.' }, { status: 404 });
         }
+
+        const totalFollowers = profileData.follower_count ?? profileData.followers ?? 0;
+        const profilePic = profileData.profile_pic_url_hd || profileData.profile_pic_url || '';
+        const bioText = profileData.biography || profileData.bio || '';
+        const displayName = profileData.full_name || cleanHandle;
 
         return NextResponse.json({
             success: true,
             username: cleanHandle,
-            full_name: profileData.full_name || cleanHandle,
-            follower_count: Number(profileData.follower_count || profileData.followers || 0),
-            profile_pic_url: profileData.profile_pic_url_hd || profileData.profile_pic_url || `https://api.dicebear.com/7.x/initials/svg?seed=${cleanHandle}`,
-            bio: profileData.biography || profileData.bio || '',
+            full_name: displayName,
+            follower_count: Number(totalFollowers),
+            profile_pic_url: profilePic,
+            bio: bioText,
         });
 
     } catch (error) {
-        return handlePresentationFallback(cleanHandle);
+        return NextResponse.json({ success: false, error: `Internal Server Error: ${error.message}` }, { status: 500 });
     }
-}
-
-function handlePresentationFallback(username) {
-    return NextResponse.json({
-        success: true,
-        username: username,
-        full_name: username.split(/[._-]+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
-        follower_count: 84600,
-        profile_pic_url: `https://api.dicebear.com/7.x/initials/svg?seed=${username}`,
-        bio: '',
-    });
 }
