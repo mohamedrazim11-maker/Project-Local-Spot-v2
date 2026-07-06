@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
 
 export default function CreatorDashboard() {
@@ -69,12 +69,12 @@ export default function CreatorDashboard() {
             ...metrics
         };
 
-        // Save under a globally accessible unique handle identifier key string
+        // Save to localStorage using the clean string handle identifier key name
         localStorage.setItem(`profile_${cleanHandle}`, JSON.stringify(profilePayload));
 
         setTimeout(() => {
             setIsSaving(false);
-            triggerAlert('success', 'Media Kit settings saved! Use the link below to visit your profile page.');
+            triggerAlert('success', 'Media Kit settings saved! Click or copy the link below.');
         }, 600);
     };
 
@@ -145,7 +145,6 @@ export default function CreatorDashboard() {
                         <div>
                             <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Generated Username URL (Auto)</label>
                             <div className="flex space-x-2">
-                                {/* 🎯 Next.js Client Link Component handles local client states cleanly */}
                                 <Link
                                     href={`/${cleanHandlePath}`}
                                     className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full text-blue-400 hover:text-blue-300 transition underline flex items-center truncate"
@@ -190,14 +189,6 @@ export default function CreatorDashboard() {
                     <div className="flex justify-between items-center pt-4 border-t border-gray-800">
                         <button type="submit" disabled={isSaving} className="bg-[#00f2fe] hover:bg-[#00d8e4] text-black font-bold px-6 py-2.5 rounded-md text-sm transition shadow-lg shadow-[#00f2fe]/10">
                             {isSaving ? 'Saving Changes...' : 'Save and Create Media Kit'}
-                        </button>
-                        <button type="button" onClick={() => {
-                            if (window.confirm('Clear form?')) {
-                                setHandle('');
-                                setMetrics({ followerCount: 0, displayName: '', niche: '', baseRate: 0, bio: '', profilePicUrl: '' });
-                            }
-                        }} className="text-gray-500 hover:text-red-400 text-xs transition underline">
-                            Reset Fields
                         </button>
                     </div>
 

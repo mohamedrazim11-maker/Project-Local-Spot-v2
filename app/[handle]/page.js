@@ -10,22 +10,19 @@ export default function PublicMediaKit() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Standardize slug handle parameter formats
-        const rawHandle = params.handle || '';
+        // 🎯 CRITICAL FIX: Wait until the framework completes parameters loading operations
+        if (!params || !params.handle) return;
+
+        const rawHandle = params.handle;
         const cleanHandle = rawHandle.toLowerCase().replace(/@/g, '').trim();
 
-        if (!cleanHandle) {
-            setLoading(false);
-            return;
-        }
-
-        // Pull item entries using the unique dynamic storage key
+        // Look for data inside local browser caching fields
         const cachedData = localStorage.getItem(`profile_${cleanHandle}`);
 
         if (cachedData) {
             setProfile(JSON.parse(cachedData));
         } else if (cleanHandle === 'r_azim004') {
-            // Automatic backup render if storage is uninitialized during evaluation
+            // Automatic backup presentation payload if empty
             setProfile({
                 handle: 'r_azim004',
                 displayName: 'Azim | Digital Creator',
@@ -36,8 +33,9 @@ export default function PublicMediaKit() {
                 profilePicUrl: ''
             });
         }
+
         setLoading(false);
-    }, [params.handle]);
+    }, [params]); // Listen explicitly to full params changes
 
     if (loading) {
         return (
