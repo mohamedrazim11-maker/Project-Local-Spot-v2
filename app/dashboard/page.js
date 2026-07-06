@@ -78,6 +78,33 @@ export default function CreatorDashboard() {
         }, 600);
     };
 
+    // New Delete Profile handler function 
+    const handleDeleteProfile = () => {
+        const cleanHandle = handle.replace(/@/g, '').trim().toLowerCase();
+
+        if (!cleanHandle) {
+            triggerAlert('error', 'No active handle profile specified to clear.');
+            return;
+        }
+
+        if (window.confirm(`Are you sure you want to permanently delete the profile data for @${cleanHandle}?`)) {
+            // Delete storage record entry from disk
+            localStorage.removeItem(`profile_${cleanHandle}`);
+
+            // Revert state variables cleanly back to defaults
+            setMetrics({
+                followerCount: 0,
+                displayName: '',
+                niche: '',
+                baseRate: 0,
+                bio: '',
+                profilePicUrl: ''
+            });
+
+            triggerAlert('success', `Profile data for @${cleanHandle} has been deleted successfully.`);
+        }
+    };
+
     const handleCopyLink = () => {
         const cleanHandle = handle.replace(/@/g, '').trim().toLowerCase();
         const generatedUrl = `${window.location.origin}/${cleanHandle}`;
@@ -186,9 +213,15 @@ export default function CreatorDashboard() {
                         <textarea rows={3} value={metrics.bio} onChange={(e) => setMetrics({ ...metrics, bio: e.target.value })} className="bg-[#090d16] border border-gray-800 rounded-md p-4 text-sm w-full focus:outline-none focus:border-gray-700 resize-none" />
                     </div>
 
+                    {/* Action buttons section at the bottom wrapper layout */}
                     <div className="flex justify-between items-center pt-4 border-t border-gray-800">
                         <button type="submit" disabled={isSaving} className="bg-[#00f2fe] hover:bg-[#00d8e4] text-black font-bold px-6 py-2.5 rounded-md text-sm transition shadow-lg shadow-[#00f2fe]/10">
                             {isSaving ? 'Saving Changes...' : 'Save and Create Media Kit'}
+                        </button>
+
+                        {/* Streamlined, standalone Delete button option */}
+                        <button type="button" onClick={handleDeleteProfile} className="bg-transparent hover:bg-red-950/30 text-red-500 hover:text-red-400 font-semibold px-4 py-2.5 rounded-md text-sm border border-red-900/50 hover:border-red-500/50 transition">
+                            Delete Profile
                         </button>
                     </div>
 
