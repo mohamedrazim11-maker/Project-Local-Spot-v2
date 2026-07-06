@@ -2,9 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 export default function CreatorDashboard() {
+    const router = useRouter();
     const [handle, setHandle] = useState('r_azim004');
     const [metrics, setMetrics] = useState({
         followerCount: 0,
@@ -23,17 +25,33 @@ export default function CreatorDashboard() {
     const [isSaving, setIsSaving] = useState(false);
     const [alert, setAlert] = useState({ type: null, message: '' });
     const [copied, setCopied] = useState(false);
+    const [isLoadingSession, setIsLoadingSession] = useState(true);
 
     const triggerAlert = (type, message) => {
         setAlert({ type, message });
         setTimeout(() => setAlert({ type: null, message: '' }), 4000);
     };
 
-    const handleSignOut = () => {
+    const handleSignOut = async () => {
         if (window.confirm('Are you sure you want to sign out?')) {
-            window.location.href = '/';
+            await supabase.auth.signOut();
+            router.push('/');
         }
     };
+
+    // 1. Initial Page Load Check: Safeguard the route by forcing a redirect if no session exists
+    useEffect(() => {
+        const checkUserSession = async () => {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+                // Instantly bounce the unauthenticated visitor to the landing root directory
+                router.push('/');
+            } else {
+                setIsLoadingSession(false);
+            }
+        };
+        checkUserSession();
+    }, [router]);
 
     const handleInstagramSync = async () => {
         if (!handle.trim()) {
@@ -64,9 +82,9 @@ export default function CreatorDashboard() {
         }
     };
 
-    // Pulls data matching your existing schema columns from image_a6a37e.png
+    // Automatically load existing profile info when the handle matches a record
     useEffect(() => {
-        if (!handle.trim()) return;
+        if (isLoadingSession || !handle.trim()) return;
         const cleanHandle = handle.replace(/@/g, '').trim().toLowerCase();
 
         const fetchExistingData = async () => {
@@ -74,7 +92,7 @@ export default function CreatorDashboard() {
                 .from('profiles')
                 .select('*')
                 .eq('instagram_handle', cleanHandle)
-                .maybeSingle(); // subtle shift to avoid throwing errors if row doesn't exist yet
+                .maybeSingle();
 
             if (data && !error) {
                 setMetrics({
@@ -96,37 +114,54 @@ export default function CreatorDashboard() {
         }, 500);
 
         return () => clearTimeout(delayDebounce);
-    }, [handle]);
+    }, [handle, isLoadingSession]);
 
     const handleSaveForm = async (e) => {
         e.preventDefault();
         setIsSaving(true);
 
-        const cleanHandle = handle.replace(/@/g, '').trim().toLowerCase();
+        try {
+            const cleanHandle = handle.replace(/@/g, '').trim().toLowerCase();
 
-        // Maps perfectly to your real Supabase column keys from image_a6a37e.png
-        const { error } = await supabase
-            .from('profiles')
-            .upsert({
-                username: cleanHandle, // Assumes username acts as unique identifier alongside auth
-                instagram_handle: cleanHandle,
-                follower_count: metrics.followerCount,
-                full_name: metrics.displayName,
-                category: metrics.niche,
-                base_rate: metrics.baseRate,
-                bio: metrics.bio,
-                avatar_url: metrics.profilePicUrl,
-                portfolio_link: portfolioLink.trim(),
-                github_link: githubLink.trim(),
-                linkedin_link: linkedinLink.trim()
-            }, { onConflict: 'username' });
+            // Fetch current session data
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            const currentUserId = sessionData?.session?.user?.id;
 
-        setIsSaving(false);
+            // Strict blockade: If no id exists, do not call supabase.from().upsert()
+            if (sessionError || !currentUserId) {
+                setIsSaving(false);
+                triggerAlert('error', 'Missing Session: You are not recognized as a logged-in user. Redirecting...');
+                router.push('/');
+                return;
+            }
 
-        if (error) {
-            triggerAlert('error', `Supabase Error: ${error.message}`);
-        } else {
-            triggerAlert('success', 'Media Kit updates successfully loaded to your pre-existing profiles table!');
+            // Securely execute upsert now that currentUserId is verified
+            const { error } = await supabase
+                .from('profiles')
+                .upsert({
+                    id: currentUserId,
+                    username: cleanHandle || 'user_' + currentUserId.slice(0, 5),
+                    instagram_handle: cleanHandle,
+                    follower_count: Number(metrics.followerCount) || 0,
+                    full_name: metrics.displayName || '',
+                    category: metrics.niche || '',
+                    base_rate: Number(metrics.baseRate) || 0,
+                    bio: metrics.bio || '',
+                    avatar_url: metrics.profilePicUrl || '',
+                    portfolio_link: (portfolioLink || '').trim(),
+                    github_link: (githubLink || '').trim(),
+                    linkedin_link: (linkedinLink || '').trim()
+                }, { onConflict: 'id' });
+
+            if (error) {
+                triggerAlert('error', `Supabase Error: ${error.message}`);
+            } else {
+                triggerAlert('success', 'Media Kit updates successfully loaded to your pre-existing profiles table!');
+            }
+        } catch (err) {
+            triggerAlert('error', `Runtime Error: ${err.message}`);
+        } finally {
+            setIsSaving(false);
         }
     };
 
@@ -138,7 +173,6 @@ export default function CreatorDashboard() {
         }
 
         if (window.confirm(`Are you sure you want to permanently clear field data for @${cleanHandle}?`)) {
-            // Because it's linked to Auth, we safely clear out profile data fields rather than deleting the entire row instance 
             const { error } = await supabase
                 .from('profiles')
                 .update({
@@ -183,13 +217,25 @@ export default function CreatorDashboard() {
 
     const cleanHandlePath = handle.replace(/@/g, '').trim().toLowerCase();
 
+    // Prevent flashing layout layout structures while user checking is processing 
+    if (isLoadingSession) {
+        return (
+            <div className="min-h-screen bg-[#090d16] flex items-center justify-center text-white font-sans">
+                <div className="text-center">
+                    <div className="w-8 h-8 border-4 border-[#00f2fe] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-sm text-gray-400">Verifying security session context...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="min-h-screen bg-[#090d16] text-white font-sans p-8 flex flex-col items-center justify-center">
             <div className="w-full max-w-4xl">
 
                 <div className="flex justify-between items-center mb-8">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Creator Dashboard (Supabase Mode)</h1>
+                        <h1 className="text-3xl font-bold tracking-tight">Creator Dashboard</h1>
                         <p className="text-gray-400 text-sm mt-1">Configure profile metrics for active creator sessions</p>
                     </div>
                     <button onClick={handleSignOut} className="bg-[#1a2333] hover:bg-red-900/40 hover:text-red-400 transition text-sm px-4 py-2 rounded-md border border-gray-800">
