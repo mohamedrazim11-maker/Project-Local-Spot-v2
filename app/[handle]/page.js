@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 
 export default function PublicMediaKit() {
     const params = useParams();
@@ -10,49 +11,38 @@ export default function PublicMediaKit() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // 🎯 Framework parameter verification layer maintained
         if (!params || !params.handle) return;
 
         const rawHandle = params.handle;
         const cleanHandle = rawHandle.toLowerCase().replace(/@/g, '').trim();
 
-        // Query browser localStorage cache
-        const cachedData = localStorage.getItem(`profile_${cleanHandle}`);
-
-        if (cachedData) {
+        const getProfileFromSupabase = async () => {
             try {
-                const parsedProfile = JSON.parse(cachedData);
-                setProfile(parsedProfile);
+                const { data, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('instagram_handle', cleanHandle)
+                    .single();
 
-                // DYNAMIC METADATA UPDATE: Inject live title for browser tabs
-                const formattedFollowers = Number(parsedProfile.followerCount || 0).toLocaleString();
-                document.title = `${parsedProfile.displayName || cleanHandle} | ${formattedFollowers} Followers - Media Kit`;
+                if (data && !error) {
+                    setProfile(data);
+                    const formattedFollowers = Number(data.follower_count || 0).toLocaleString();
+                    document.title = `${data.full_name || cleanHandle} | ${formattedFollowers} Followers - Media Kit`;
+                } else {
+                    setProfile(null);
+                    document.title = `404: Profile Not Found`;
+                }
             } catch (err) {
-                console.error("Error updating document metadata:", err);
+                console.error("Supabase live pull connection error:", err);
+                setProfile(null);
+            } finally {
+                setLoading(false);
             }
-        } else if (cleanHandle === 'r_azim004') {
-            // Presentation placeholder backup payload
-            const fallbackProfile = {
-                handle: 'r_azim004',
-                displayName: 'Azim | Digital Creator',
-                followerCount: 24500,
-                niche: 'Tech & Development',
-                baseRate: 200,
-                bio: 'Building seamless software solutions and crafting modern user interfaces. Reach out for collaboration!',
-                profilePicUrl: '',
-                // If r_azim004 has custom links, they go here. Leaving empty or omitted means "No links provided" fires.
-                customLinks: null
-            };
-            setProfile(fallbackProfile);
-            document.title = `${fallbackProfile.displayName} | 24,500 Followers - Media Kit`;
-        } else {
-            document.title = `404: Profile Not Found`;
-        }
+        };
 
-        setLoading(false);
+        getProfileFromSupabase();
     }, [params]);
 
-    // Helper to process link clicks securely
     const handleLinkClick = (e, url) => {
         if (!url || url === '#' || url.trim() === '') {
             e.preventDefault();
@@ -80,33 +70,29 @@ export default function PublicMediaKit() {
         );
     }
 
-    // Explicit structural links requested during compilation. If user profile object doesn't possess them, fall back safely.
     const structuredLinks = [
-        { label: '🌐 Personal Portfolio Website', url: profile.portfolioUrl || profile.portfolioLink },
-        { label: '💻 GitHub Repositories', url: profile.githubUrl || profile.githubLink },
-        { label: '👔 Professional LinkedIn', url: profile.linkedinUrl || profile.linkedinLink }
+        { label: '🌐 Personal Portfolio Website', url: profile.portfolio_link },
+        { label: '💻 GitHub Repositories', url: profile.github_link },
+        { label: '👔 Professional LinkedIn', url: profile.linkedin_link }
     ];
 
     return (
         <div className="min-h-screen bg-[#060913] text-white py-12 px-4 relative overflow-hidden font-sans flex flex-col items-center justify-start">
-            {/* Immersive Cyber-Glow Backdrop Background elements */}
             <div className="absolute top-[-10%] left-[-20%] w-[600px] h-[600px] bg-[#00f2fe]/10 rounded-full blur-[150px] pointer-events-none" />
             <div className="absolute top-[30%] right-[-20%] w-[500px] h-[500px] bg-[#10b981]/5 rounded-full blur-[130px] pointer-events-none" />
 
             <div className="w-full max-w-4xl relative z-10 flex flex-col gap-6">
 
-                {/* 🌟 SECTION 1: PREMIUM COMPACT BIO HEADER CARD */}
                 <div className="w-full bg-[#0d1222]/70 backdrop-blur-xl border border-gray-800/80 rounded-2xl p-6 md:p-8 shadow-2xl flex flex-col md:flex-row items-center md:items-start justify-between gap-6">
                     <div className="flex flex-col md:flex-row items-center md:items-start text-center md:text-left gap-5 w-full max-w-xl">
-                        {/* Interactive Profile Avatar Housing */}
                         <div className="relative group shrink-0">
                             <div className="absolute -inset-0.5 bg-gradient-to-r from-[#00f2fe] to-[#10b981] rounded-full blur opacity-40 group-hover:opacity-70 transition duration-500"></div>
                             <div className="relative w-24 h-24 rounded-full border-2 border-gray-800 shadow-xl overflow-hidden flex items-center justify-center bg-[#181f32]">
-                                {profile.profilePicUrl ? (
-                                    <img src={profile.profilePicUrl} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                {profile.avatar_url ? (
+                                    <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                                 ) : (
                                     <div className="w-full h-full bg-gradient-to-tr from-[#1f2937] to-[#111827] flex items-center justify-center text-3xl font-black text-gray-300">
-                                        {profile.handle.slice(0, 2).toUpperCase()}
+                                        {profile.instagram_handle ? profile.instagram_handle.slice(0, 2).toUpperCase() : 'IG'}
                                     </div>
                                 )}
                             </div>
@@ -114,15 +100,15 @@ export default function PublicMediaKit() {
 
                         <div className="flex flex-col justify-center">
                             <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-1 justify-center md:justify-start">
-                                <h1 className="text-2xl font-black tracking-tight text-white">{profile.displayName}</h1>
-                                {profile.niche && (
+                                <h1 className="text-2xl font-black tracking-tight text-white">{profile.full_name}</h1>
+                                {profile.category && (
                                     <span className="self-center bg-emerald-500/10 border border-emerald-500/20 text-[#10b981] text-[9px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                                        {profile.niche}
+                                        {profile.category}
                                     </span>
                                 )}
                             </div>
-                            <a href={`https://instagram.com/${profile.handle}`} target="_blank" rel="noopener noreferrer" className="text-sm text-[#00f2fe] hover:text-[#39f7ff] font-semibold transition tracking-wide flex items-center justify-center md:justify-start gap-1 mb-4">
-                                @{profile.handle} <span className="text-xs text-gray-600 font-normal">↗</span>
+                            <a href={`https://instagram.com/${profile.instagram_handle}`} target="_blank" rel="noopener noreferrer" className="text-sm text-[#00f2fe] hover:text-[#39f7ff] font-semibold transition tracking-wide flex items-center justify-center md:justify-start gap-1 mb-4">
+                                @{profile.instagram_handle} <span className="text-xs text-gray-600 font-normal">↗</span>
                             </a>
                             {profile.bio && (
                                 <p className="text-sm text-gray-400 leading-relaxed max-w-lg">
@@ -132,49 +118,43 @@ export default function PublicMediaKit() {
                         </div>
                     </div>
 
-                    {/* Integrated Quick Action Verification Badge */}
                     <div className="hidden sm:flex flex-col items-end shrink-0">
                         <div className="bg-[#141c30] border border-gray-800/80 rounded-xl px-4 py-2.5 text-right">
                             <p className="text-[10px] uppercase font-bold tracking-widest text-gray-500 mb-0.5">Media Kit Status</p>
                             <p className="text-xs font-black text-[#10b981] flex items-center gap-1.5 justify-end">
-                                <span className="w-2 h-2 bg-[#10b981] rounded-full animate-pulse" /> Verified Live
+                                <span className="w-2 h-2 bg-[#10b981] rounded-full animate-pulse" /> Live Supabase
                             </p>
                         </div>
                     </div>
                 </div>
 
-                {/* 🌟 SECTION 2: HIGH-END SPONSORSHIP KEY PERFORMANCE METRICS */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {/* Followers Matrix Card */}
                     <div className="bg-[#0d1222]/50 border border-gray-800/60 rounded-xl p-5 relative overflow-hidden group shadow-lg">
                         <div className="absolute top-0 left-0 w-1 h-full bg-[#10b981]" />
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Total Reach</p>
-                        <p className="text-3xl font-black text-[#10b981] tracking-tight">{Number(profile.followerCount).toLocaleString()}</p>
+                        <p className="text-3xl font-black text-[#10b981] tracking-tight">{Number(profile.follower_count).toLocaleString()}</p>
                         <p className="text-[10px] text-gray-500 font-medium mt-1">Active Followers</p>
                     </div>
 
-                    {/* Engagement Calculation Card */}
                     <div className="bg-[#0d1222]/50 border border-gray-800/60 rounded-xl p-5 relative overflow-hidden group shadow-lg">
                         <div className="absolute top-0 left-0 w-1 h-full bg-indigo-500" />
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Avg Engagement</p>
                         <p className="text-3xl font-black text-indigo-400 tracking-tight">
-                            {profile.followerCount > 0 ? (4.8).toFixed(1) : '0.0'}%
+                            {profile.follower_count > 0 ? (4.8).toFixed(1) : '0.0'}%
                         </p>
                         <p className="text-[10px] text-gray-500 font-medium mt-1">Industry Benchmark High</p>
                     </div>
 
-                    {/* Pricing Tier Valuation Index Card */}
                     <div className="bg-[#0d1222]/50 border border-gray-800/60 rounded-xl p-5 relative overflow-hidden group shadow-lg">
                         <div className="absolute top-0 left-0 w-1 h-full bg-[#00f2fe]" />
                         <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Partnership Rate</p>
                         <p className="text-3xl font-black text-[#00f2fe] tracking-tight">
-                            {profile.baseRate > 0 ? `$${profile.baseRate}` : 'Contact'}
+                            {profile.base_rate > 0 ? `$${profile.base_rate}` : 'Contact'}
                         </p>
                         <p className="text-[10px] text-gray-500 font-medium mt-1">Base Price Point Per Post</p>
                     </div>
                 </div>
 
-                {/* 🌟 NEW SECTION: LIVE LINK-IN-BIO AGGREGATOR GRID */}
                 <div className="w-full bg-[#0d1222]/40 border border-gray-800/50 rounded-2xl p-6 shadow-xl flex flex-col gap-3">
                     <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400 border-b border-gray-800/60 pb-3">
                         External Channels & Digital Ecosystem
@@ -196,7 +176,6 @@ export default function PublicMediaKit() {
                     </div>
                 </div>
 
-                {/* 🌟 SECTION 3: ADVANCED PREVIEW DECK (SPONSORSHIP CAPABILITIES) */}
                 <div className="w-full bg-[#0d1222]/40 border border-gray-800/50 rounded-2xl p-6 shadow-xl flex flex-col gap-4">
                     <h2 className="text-xs font-bold uppercase tracking-widest text-gray-400 border-b border-gray-800/60 pb-3">
                         Campaign Channels & Placement Offers
@@ -219,10 +198,9 @@ export default function PublicMediaKit() {
                     </div>
                 </div>
 
-                {/* 🌟 SECTION 4: SINGLE ACTION BOOKING BUTTON */}
                 <div className="w-full mt-2">
                     <a
-                        href={`https://instagram.com/${profile.handle}`} target="_blank" rel="noopener noreferrer"
+                        href={`https://instagram.com/${profile.instagram_handle}`} target="_blank" rel="noopener noreferrer"
                         className="w-full block text-center bg-gradient-to-r from-[#00f2fe] to-[#10b981] text-black font-black text-sm py-4 rounded-xl transition hover:brightness-110 shadow-lg shadow-[#00f2fe]/10"
                     >
                         Secure Campaign Booking
@@ -230,7 +208,7 @@ export default function PublicMediaKit() {
                 </div>
 
                 <div className="text-center text-[10px] text-gray-600 font-semibold tracking-widest uppercase mt-6">
-                    © {new Date().getFullYear()} Next.js Creator Ecosystem • Analytics Securely Cached
+                    © 2026 Next.js Creator Ecosystem • Supabase Database Live Connection
                 </div>
 
             </div>
