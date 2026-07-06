@@ -40,12 +40,8 @@ export default function PublicMediaKit() {
                 baseRate: 200,
                 bio: 'Building seamless software solutions and crafting modern user interfaces. Reach out for collaboration!',
                 profilePicUrl: '',
-                // Fallback links specifically for developer portfolios
-                customLinks: [
-                    { label: '🌐 Personal Portfolio Website', url: '#' },
-                    { label: '💻 GitHub Repositories', url: 'https://github.com' },
-                    { label: '👔 Professional LinkedIn', url: 'https://linkedin.com' }
-                ]
+                // If r_azim004 has custom links, they go here. Leaving empty or omitted means "No links provided" fires.
+                customLinks: null
             };
             setProfile(fallbackProfile);
             document.title = `${fallbackProfile.displayName} | 24,500 Followers - Media Kit`;
@@ -55,6 +51,14 @@ export default function PublicMediaKit() {
 
         setLoading(false);
     }, [params]);
+
+    // Helper to process link clicks securely
+    const handleLinkClick = (e, url) => {
+        if (!url || url === '#' || url.trim() === '') {
+            e.preventDefault();
+            alert('No links provided');
+        }
+    };
 
     if (loading) {
         return (
@@ -76,11 +80,11 @@ export default function PublicMediaKit() {
         );
     }
 
-    // Determine links array to display (uses profile custom links or built-in developer fallback defaults)
-    const displayLinks = profile.customLinks || [
-        { label: '🌐 Personal Portfolio Website', url: '#' },
-        { label: '💻 GitHub Repositories', url: 'https://github.com' },
-        { label: '👔 Professional LinkedIn', url: 'https://linkedin.com' }
+    // Explicit structural links requested during compilation. If user profile object doesn't possess them, fall back safely.
+    const structuredLinks = [
+        { label: '🌐 Personal Portfolio Website', url: profile.portfolioUrl || profile.portfolioLink },
+        { label: '💻 GitHub Repositories', url: profile.githubUrl || profile.githubLink },
+        { label: '👔 Professional LinkedIn', url: profile.linkedinUrl || profile.linkedinLink }
     ];
 
     return (
@@ -176,11 +180,12 @@ export default function PublicMediaKit() {
                         External Channels & Digital Ecosystem
                     </h2>
                     <div className="flex flex-col gap-2.5 mt-1">
-                        {displayLinks.map((link, idx) => (
+                        {structuredLinks.map((link, idx) => (
                             <a
                                 key={idx}
-                                href={link.url}
-                                target="_blank"
+                                href={link.url || '#'}
+                                onClick={(e) => handleLinkClick(e, link.url)}
+                                target={link.url ? "_blank" : undefined}
                                 rel="noopener noreferrer"
                                 className="w-full bg-[#111625]/60 hover:bg-[#161d31] border border-gray-800/70 hover:border-gray-700 rounded-xl p-4 text-sm font-bold text-gray-200 hover:text-white transition flex items-center justify-between group"
                             >

@@ -14,6 +14,11 @@ export default function CreatorDashboard() {
         profilePicUrl: ''
     });
 
+    // 🔗 Added States for Ecosystem Links
+    const [portfolioLink, setPortfolioLink] = useState('');
+    const [githubLink, setGithubLink] = useState('');
+    const [linkedinLink, setLinkedinLink] = useState('');
+
     const [isSyncing, setIsSyncing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [alert, setAlert] = useState({ type: null, message: '' });
@@ -66,7 +71,11 @@ export default function CreatorDashboard() {
         const cleanHandle = handle.replace(/@/g, '').trim().toLowerCase();
         const profilePayload = {
             handle: cleanHandle,
-            ...metrics
+            ...metrics,
+            // 💾 Included links in payload
+            portfolioLink: portfolioLink.trim(),
+            githubLink: githubLink.trim(),
+            linkedinLink: linkedinLink.trim()
         };
 
         // Save to localStorage using the clean string handle identifier key name
@@ -100,6 +109,11 @@ export default function CreatorDashboard() {
                 bio: '',
                 profilePicUrl: ''
             });
+
+            // 🗑 Wiped link states
+            setPortfolioLink('');
+            setGithubLink('');
+            setLinkedinLink('');
 
             triggerAlert('success', `Profile data for @${cleanHandle} has been deleted successfully.`);
         }
@@ -205,6 +219,22 @@ export default function CreatorDashboard() {
                         <div>
                             <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Base Sponsorship Rate ($)</label>
                             <input type="number" value={metrics.baseRate || ''} onChange={(e) => setMetrics({ ...metrics, baseRate: Number(e.target.value) })} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700" />
+                        </div>
+
+                        {/* 🌟 Added Link Input Fields Inside Form Layout */}
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Personal Portfolio Link</label>
+                            <input type="url" placeholder="https://yourportfolio.com" value={portfolioLink} onChange={(e) => setPortfolioLink(e.target.value)} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700 text-white" />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">GitHub Profile Link</label>
+                            <input type="url" placeholder="https://github.com/yourusername" value={githubLink} onChange={(e) => setGithubLink(e.target.value)} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700 text-white" />
+                        </div>
+
+                        <div className="md:col-span-2">
+                            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">LinkedIn Profile Link</label>
+                            <input type="url" placeholder="https://linkedin.com/in/yourusername" value={linkedinLink} onChange={(e) => setLinkedinLink(e.target.value)} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700 text-white" />
                         </div>
                     </div>
 
