@@ -1,14 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function UnifiedAuthPage() {
+function AuthForm() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+
+    // Check URL parameters directly during initialization to prevent screen flashing
+    const initialMode = searchParams.get('mode') === 'signin' ? 'SIGNIN' : 'SIGNUP';
 
     // Controls global view: 'SIGNUP' or 'SIGNIN'
-    const [view, setView] = useState('SIGNUP');
+    const [view, setView] = useState(initialMode);
 
     // Controls signup progression step: 'EMAIL' -> 'OTP' -> 'PASSWORD_SETUP'
     const [signupStep, setSignupStep] = useState('EMAIL');
@@ -23,7 +27,17 @@ export default function UnifiedAuthPage() {
     const [loading, setLoading] = useState(false);
     const [message, setMessage] = useState({ type: '', text: '' });
 
-    // Helper to reset states when swapping views
+    // Sync state changes if the user clicks between pages using browser history
+    useEffect(() => {
+        const mode = searchParams.get('mode');
+        if (mode === 'signin') {
+            setView('SIGNIN');
+        } else {
+            setView('SIGNUP');
+            setSignupStep('EMAIL');
+        }
+    }, [searchParams]);
+
     const handleSwitchView = (targetView) => {
         setView(targetView);
         setSignupStep('EMAIL');
@@ -36,8 +50,6 @@ export default function UnifiedAuthPage() {
     // ==========================================
     // SIGNUP FLOW ACTIONS
     // ==========================================
-
-    // 1. Submit Gmail to send OTP
     const handleSendOtp = async (e) => {
         e.preventDefault();
         if (!email) return;
@@ -62,7 +74,6 @@ export default function UnifiedAuthPage() {
         }
     };
 
-    // 2. Verify 6-digit OTP code 
     const handleVerifyOtp = async (e) => {
         e.preventDefault();
         if (!otp) return;
@@ -80,7 +91,7 @@ export default function UnifiedAuthPage() {
             if (error) throw error;
 
             if (data.session) {
-                setMessage({ type: 'success', text: 'Gmail successfully verified! Create your security password.' });
+                setMessage({ type: 'success', text: 'Gmail verified! Set your password.' });
                 setSignupStep('PASSWORD_SETUP');
             }
         } catch (err) {
@@ -90,7 +101,6 @@ export default function UnifiedAuthPage() {
         }
     };
 
-    // 3. Confirm & create account passwords
     const handleCreatePassword = async (e) => {
         e.preventDefault();
 
@@ -114,9 +124,8 @@ export default function UnifiedAuthPage() {
 
             if (error) throw error;
 
-            setMessage({ type: 'success', text: 'Account registered successfully! Redirecting...' });
+            setMessage({ type: 'success', text: 'Account registered successfully!' });
 
-            // Redirect to dashboard upon completion
             setTimeout(() => {
                 router.push('/dashboard');
             }, 2000);
@@ -149,179 +158,178 @@ export default function UnifiedAuthPage() {
                 router.push('/dashboard');
             }
         } catch (err) {
-            setMessage({ type: 'error', text: err.message || 'Invalid email credentials or password.' });
+            setMessage({ type: 'error', text: err.message || 'Invalid credentials or incorrect password.' });
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div className="min-h-screen bg-[#090d16] text-white flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-[#111827] border border-gray-800 rounded-2xl shadow-2xl p-6 md:p-8">
+        <div className="w-full max-w-[440px] bg-[#0d1424] rounded-2xl p-8 md:p-10 border border-[#1e293b]/30 shadow-2xl">
+            <h2 className="text-3xl font-bold text-center text-white mb-2 tracking-wide">
+                {view === 'SIGNUP' ? 'Create Account' : 'Welcome Back'}
+            </h2>
 
-                {/* View Titles */}
-                <h2 className="text-2xl font-black text-center text-white mb-2">
-                    {view === 'SIGNUP' ? 'Create Account' : 'Welcome Back'}
-                </h2>
+            <p className="text-xs text-gray-400 text-center mb-8">
+                {view === 'SIGNUP' && signupStep === 'EMAIL' && 'Step 1: Enter your Gmail address'}
+                {view === 'SIGNUP' && signupStep === 'OTP' && 'Step 2: Enter the verification code'}
+                {view === 'SIGNUP' && signupStep === 'PASSWORD_SETUP' && 'Step 3: Establish security credentials'}
+                {view === 'SIGNIN' && 'Sign in using your Gmail and password'}
+            </p>
 
-                <p className="text-xs text-gray-400 text-center mb-6">
-                    {view === 'SIGNUP' && signupStep === 'EMAIL' && 'Step 1: Enter your Gmail address'}
-                    {view === 'SIGNUP' && signupStep === 'OTP' && 'Step 2: Enter the verification code'}
-                    {view === 'SIGNUP' && signupStep === 'PASSWORD_SETUP' && 'Step 3: Establish security credentials'}
-                    {view === 'SIGNIN' && 'Sign in using your Gmail and password'}
-                </p>
+            {message.text && (
+                <div className={`p-3 rounded-xl text-xs font-semibold mb-6 text-center border ${message.type === 'success'
+                    ? 'bg-emerald-950/40 text-emerald-400 border-emerald-900/40'
+                    : 'bg-red-950/40 text-red-400 border-red-900/40'
+                    }`}>
+                    {message.text}
+                </div>
+            )}
 
-                {/* System Messages */}
-                {message.text && (
-                    <div className={`p-3 rounded-lg text-xs font-semibold mb-4 text-center border ${message.type === 'success'
-                            ? 'bg-emerald-950/40 text-emerald-400 border-emerald-900/50'
-                            : 'bg-red-950/40 text-red-400 border-red-900/50'
-                        }`}>
-                        {message.text}
-                    </div>
-                )}
+            {/* SIGN UP SECTION */}
+            {view === 'SIGNUP' && (
+                <div>
+                    {signupStep === 'EMAIL' && (
+                        <form onSubmit={handleSendOtp} className="space-y-6">
+                            <div>
+                                <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">Gmail Address</label>
+                                <input
+                                    type="email"
+                                    required
+                                    placeholder="yourname@gmail.com"
+                                    value={email}
+                                    onChange={(e) => setEmail(e.target.value)}
+                                    className="w-full bg-[#070b14] border border-[#1e293b] rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#38bdf8] text-white placeholder-gray-600 transition"
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full bg-gradient-to-r from-[#38bdf8] to-[#0284c7] text-white font-bold text-sm py-3.5 rounded-xl hover:opacity-95 active:scale-[0.99] transition disabled:opacity-50"
+                            >
+                                {loading ? 'Sending Code...' : 'Verify Gmail'}
+                            </button>
+                        </form>
+                    )}
 
-                {/* ======================================================== */}
-                {/* SIGN UP SECTION                                          */}
-                {/* ======================================================== */}
-                {view === 'SIGNUP' && (
+                    {signupStep === 'OTP' && (
+                        <form onSubmit={handleVerifyOtp} className="space-y-6">
+                            <div>
+                                <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">Enter Verification Code</label>
+                                <input
+                                    type="text"
+                                    required
+                                    maxLength={6}
+                                    placeholder="123456"
+                                    value={otp}
+                                    onChange={(e) => setOtp(e.target.value)}
+                                    className="w-full bg-[#070b14] border border-[#1e293b] rounded-xl px-4 py-3.5 text-sm text-center tracking-[0.5em] font-mono text-xl focus:outline-none focus:border-[#38bdf8] text-white placeholder-gray-700 transition"
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full bg-gradient-to-r from-[#38bdf8] to-[#0284c7] text-white font-bold text-sm py-3.5 rounded-xl hover:opacity-95 active:scale-[0.99] transition disabled:opacity-50"
+                            >
+                                {loading ? 'Verifying...' : 'Confirm Code'}
+                            </button>
+                        </form>
+                    )}
+
+                    {signupStep === 'PASSWORD_SETUP' && (
+                        <form onSubmit={handleCreatePassword} className="space-y-5">
+                            <div>
+                                <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">Create Password</label>
+                                <input
+                                    type="password"
+                                    required
+                                    minLength={6}
+                                    placeholder="••••••••"
+                                    value={password}
+                                    onChange={(e) => setPassword(e.target.value)}
+                                    className="w-full bg-[#070b14] border border-[#1e293b] rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#38bdf8] text-white placeholder-gray-600 transition mb-4"
+                                />
+
+                                <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">Confirm Password</label>
+                                <input
+                                    type="password"
+                                    required
+                                    minLength={6}
+                                    placeholder="••••••••"
+                                    value={confirmPassword}
+                                    onChange={(e) => setConfirmPassword(e.target.value)}
+                                    className="w-full bg-[#070b14] border border-[#1e293b] rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#38bdf8] text-white placeholder-gray-600 transition"
+                                />
+                            </div>
+                            <button
+                                type="submit"
+                                disabled={loading}
+                                className="w-full bg-gradient-to-r from-[#10b981] to-[#059669] text-white font-bold text-sm py-3.5 rounded-xl hover:opacity-95 active:scale-[0.99] transition disabled:opacity-50"
+                            >
+                                {loading ? 'Saving...' : 'Finish Setup'}
+                            </button>
+                        </form>
+                    )}
+
+                    <p className="text-center text-xs text-gray-500 mt-8 tracking-wide">
+                        Already configured an account?{' '}
+                        <button type="button" onClick={() => handleSwitchView('SIGNIN')} className="text-[#38bdf8] hover:underline font-bold transition">Sign In</button>
+                    </p>
+                </div>
+            )}
+
+            {/* SIGN IN SECTION (GMAIL + PASSWORD INPUT ONLY) */}
+            {view === 'SIGNIN' && (
+                <form onSubmit={handlePasswordSignIn} className="space-y-5">
                     <div>
-                        {/* Step 1: Email Input */}
-                        {signupStep === 'EMAIL' && (
-                            <form onSubmit={handleSendOtp} className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Gmail Address</label>
-                                    <input
-                                        type="email"
-                                        required
-                                        placeholder="yourname@gmail.com"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
-                                        className="w-full bg-[#090d16] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#00f2fe] text-white"
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full bg-gradient-to-r from-[#00f2fe] to-[#4facfe] text-[#090d16] font-bold text-sm py-3 rounded-xl hover:opacity-90 transition disabled:opacity-50"
-                                >
-                                    {loading ? 'Sending Code...' : 'Verify Gmail'}
-                                </button>
-                            </form>
-                        )}
+                        <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">Gmail Address</label>
+                        <input
+                            type="email"
+                            required
+                            placeholder="yourname@gmail.com"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            className="w-full bg-[#070b14] border border-[#1e293b] rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#38bdf8] text-white placeholder-gray-600 transition mb-4"
+                        />
 
-                        {/* Step 2: OTP Verification */}
-                        {signupStep === 'OTP' && (
-                            <form onSubmit={handleVerifyOtp} className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Enter Verification Code</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        maxLength={6}
-                                        placeholder="123456"
-                                        value={otp}
-                                        onChange={(e) => setOtp(e.target.value)}
-                                        className="w-full bg-[#090d16] border border-gray-800 rounded-xl px-4 py-3 text-sm text-center tracking-widest font-mono text-xl focus:outline-none focus:border-[#00f2fe] text-white"
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full bg-gradient-to-r from-[#00f2fe] to-[#4facfe] text-[#090d16] font-bold text-sm py-3 rounded-xl hover:opacity-90 transition disabled:opacity-50"
-                                >
-                                    {loading ? 'Verifying...' : 'Confirm Code'}
-                                </button>
-                            </form>
-                        )}
-
-                        {/* Step 3: Password Inputs */}
-                        {signupStep === 'PASSWORD_SETUP' && (
-                            <form onSubmit={handleCreatePassword} className="space-y-4">
-                                <div>
-                                    <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Create Password</label>
-                                    <input
-                                        type="password"
-                                        required
-                                        minLength={6}
-                                        placeholder="••••••••"
-                                        value={password}
-                                        onChange={(e) => setPassword(e.target.value)}
-                                        className="w-full bg-[#090d16] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#00f2fe] text-white mb-4"
-                                    />
-
-                                    <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Confirm Password</label>
-                                    <input
-                                        type="password"
-                                        required
-                                        minLength={6}
-                                        placeholder="••••••••"
-                                        value={confirmPassword}
-                                        onChange={(e) => setConfirmPassword(e.target.value)}
-                                        className="w-full bg-[#090d16] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#00f2fe] text-white"
-                                    />
-                                </div>
-                                <button
-                                    type="submit"
-                                    disabled={loading}
-                                    className="w-full bg-gradient-to-r from-[#10b981] to-[#059669] text-white font-bold text-sm py-3 rounded-xl hover:opacity-90 transition disabled:opacity-50"
-                                >
-                                    {loading ? 'Saving Parameters...' : 'Finish Setup'}
-                                </button>
-                            </form>
-                        )}
-
-                        {/* Switch Link back to Sign In */}
-                        <p className="text-center text-xs text-gray-500 mt-6">
-                            Already configured an account?{' '}
-                            <button type="button" onClick={() => handleSwitchView('SIGNIN')} className="text-[#00f2fe] hover:underline font-semibold">Sign In</button>
-                        </p>
+                        <label className="block text-[11px] font-bold uppercase tracking-widest text-gray-400 mb-2">Password</label>
+                        <input
+                            type="password"
+                            required
+                            placeholder="••••••••"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="w-full bg-[#070b14] border border-[#1e293b] rounded-xl px-4 py-3.5 text-sm focus:outline-none focus:border-[#38bdf8] text-white placeholder-gray-600 transition"
+                        />
                     </div>
-                )}
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="w-full bg-gradient-to-r from-[#38bdf8] to-[#0284c7] text-white font-bold text-sm py-3.5 rounded-xl hover:opacity-95 active:scale-[0.99] transition disabled:opacity-50"
+                    >
+                        {loading ? 'Authenticating...' : 'Sign In'}
+                    </button>
 
-                {/* ======================================================== */}
-                {/* SIGN IN SECTION                                          */}
-                {/* ======================================================== */}
-                {view === 'SIGNIN' && (
-                    <form onSubmit={handlePasswordSignIn} className="space-y-4">
-                        <div>
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Gmail Address</label>
-                            <input
-                                type="email"
-                                required
-                                placeholder="yourname@gmail.com"
-                                value={email}
-                                onChange={(e) => setEmail(e.target.value)}
-                                className="w-full bg-[#090d16] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#00f2fe] text-white mb-4"
-                            />
+                    <p className="text-center text-xs text-gray-500 mt-8 tracking-wide">
+                        Need a new account?{' '}
+                        <button type="button" onClick={() => handleSwitchView('SIGNUP')} className="text-[#38bdf8] hover:underline font-bold transition">Sign Up via OTP</button>
+                    </p>
+                </form>
+            )}
+        </div>
+    );
+}
 
-                            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Password</label>
-                            <input
-                                type="password"
-                                required
-                                placeholder="••••••••"
-                                value={password}
-                                onChange={(e) => setPassword(e.target.value)}
-                                className="w-full bg-[#090d16] border border-gray-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#00f2fe] text-white"
-                            />
-                        </div>
-                        <button
-                            type="submit"
-                            disabled={loading}
-                            className="w-full bg-gradient-to-r from-[#00f2fe] to-[#4facfe] text-[#090d16] font-bold text-sm py-3 rounded-xl hover:opacity-90 transition disabled:opacity-50"
-                        >
-                            {loading ? 'Authenticating...' : 'Sign In'}
-                        </button>
-
-                        {/* Switch Link back to Sign Up */}
-                        <p className="text-center text-xs text-gray-500 mt-6">
-                            Need a new account?{' '}
-                            <button type="button" onClick={() => handleSwitchView('SIGNUP')} className="text-[#00f2fe] hover:underline font-semibold">Sign Up via OTP</button>
-                        </p>
-                    </form>
-                )}
-
-            </div>
+export default function UnifiedAuthPage() {
+    return (
+        <div className="min-h-screen bg-[#060a12] text-white flex items-center justify-center p-4">
+            <Suspense fallback={
+                <div className="text-xs text-gray-500 font-mono tracking-widest animate-pulse">
+                    LOADING SECURITY SETTINGS...
+                </div>
+            }>
+                <AuthForm />
+            </Suspense>
         </div>
     );
 }

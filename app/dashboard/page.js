@@ -32,6 +32,10 @@ export default function CreatorDashboard() {
     const [copied, setCopied] = useState(false);
     const [isLoadingSession, setIsLoadingSession] = useState(true);
 
+    // Account Deletion States
+    const [deleting, setDeleting] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
+
     const triggerAlert = (type, message) => {
         setAlert({ type, message });
         setTimeout(() => setAlert({ type: null, message: '' }), 4000);
@@ -275,6 +279,22 @@ export default function CreatorDashboard() {
         setTimeout(() => setCopied(false), 2000);
     };
 
+    // --- Delete Complete User Account & Data ---
+    const handleDeleteAccount = async () => {
+        setDeleting(true);
+        try {
+            const { error } = await supabase.rpc('delete_user_account');
+            if (error) throw error;
+
+            await supabase.auth.signOut();
+            router.push('/');
+            router.refresh();
+        } catch (err) {
+            triggerAlert('error', err.message || 'An error occurred while deleting your account.');
+            setDeleting(false);
+        }
+    };
+
     const cleanHandlePath = handle.replace(/@/g, '').trim().toLowerCase();
 
     if (isLoadingSession) {
@@ -395,8 +415,8 @@ export default function CreatorDashboard() {
                     </div>
                 </form>
 
-                {/* --- NEW SERVICE PACKAGES CONFIGURATOR --- */}
-                <div className="bg-[#111827] border border-gray-800 rounded-xl p-8 shadow-xl">
+                {/* --- SERVICE PACKAGES CONFIGURATOR --- */}
+                <div className="bg-[#111827] border border-gray-800 rounded-xl p-8 shadow-xl mb-8">
                     <h2 className="text-xl font-bold mb-2">Sponsorship Packages & Bundles</h2>
                     <p className="text-xs text-gray-400 mb-6">Create predefined service rates for brands to instantly review and order.</p>
 
@@ -442,84 +462,49 @@ export default function CreatorDashboard() {
                     </div>
                 </div>
 
-            </div>
-            {/* --- NEW BRAND PITCH TEMPLATE GENERATOR --- */}
-            <div className="bg-[#111827] border border-gray-800 rounded-xl p-8 shadow-xl mt-8">
-                <h2 className="text-xl font-bold mb-2">Instant Brand Pitch Generator</h2>
-                <p className="text-xs text-gray-400 mb-6">Generate highly converting cold outreach emails dynamically populated with your media kit metrics.</p>
+                {/* --- DANGER ZONE / ACCOUNT REMOVAL PANEL --- */}
+                <div className="bg-red-950/10 border border-red-900/30 rounded-xl p-8 shadow-xl">
+                    <h3 className="text-lg font-bold text-red-400 mb-1">Danger Zone</h3>
+                    <p className="text-xs text-gray-400 mb-6 leading-relaxed">
+                        Deleting your account will purge all user configurations, profile routes, and database logs permanently. This operation cannot be rolled back.
+                    </p>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                    <div>
-                        <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Target Brand Name</label>
-                        <input
-                            type="text"
-                            placeholder="e.g., Nike, Adobe, Sony"
-                            id="targetBrand"
-                            className="bg-[#090d16] border border-gray-800 rounded px-3 py-2 text-sm w-full focus:outline-none text-white"
-                        />
-                    </div>
-                    <div>
-                        <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Pitch Style / Goal</label>
-                        <select
-                            id="pitchGoal"
-                            className="bg-[#090d16] border border-gray-800 rounded px-3 py-2 text-sm w-full focus:outline-none text-white"
+                    {!showConfirm ? (
+                        <button
+                            type="button"
+                            onClick={() => setShowConfirm(true)}
+                            className="bg-red-950/40 hover:bg-red-900/40 border border-red-900/50 text-red-400 text-xs font-bold px-5 py-3 rounded-md transition w-full md:w-auto"
                         >
-                            <option value="cold">Cold Collaboration Proposal</option>
-                            <option value="invite">Invite to Product Review</option>
-                            <option value="longterm">Long-term Ambassadorship</option>
-                        </select>
-                    </div>
+                            Delete Account...
+                        </button>
+                    ) : (
+                        <div className="space-y-4">
+                            <p className="text-xs font-bold text-red-400 animate-pulse">
+                                ⚠️ Are you absolutely sure? This will delete your authentication profile and table data.
+                            </p>
+                            <div className="flex flex-wrap gap-3">
+                                <button
+                                    type="button"
+                                    disabled={deleting}
+                                    onClick={handleDeleteAccount}
+                                    className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-5 py-3 rounded-md transition disabled:opacity-50"
+                                >
+                                    {deleting ? 'Purging Records...' : 'Yes, Confirm Delete'}
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={deleting}
+                                    onClick={() => setShowConfirm(false)}
+                                    className="bg-[#1f2937] hover:bg-[#374151] text-gray-300 border border-gray-700 text-xs font-bold px-5 py-3 rounded-md transition"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                <div className="text-right mb-4">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            const brand = document.getElementById('targetBrand').value.trim() || '[Brand Name]';
-                            const goal = document.getElementById('pitchGoal').value;
-                            const cleanHandle = handle.replace(/@/g, '').trim();
-                            const shareableUrl = `${window.location.origin}/${cleanHandle}`;
-
-                            let template = '';
-                            if (goal === 'cold') {
-                                template = `Subject: Collaboration Inquiry: @${cleanHandle} x ${brand}\n\nHi ${brand} Team,\n\nI’ve been following your brand and absolutely love your products. My name is ${metrics.displayName || 'a content creator'}, and I run a digital community centered around the ${metrics.niche || 'lifestyle'} space with over ${metrics.followerCount.toLocaleString()} active followers.\n\nI’d love to discuss potential content integration opportunities for your upcoming campaigns. You can check out my complete live audience metrics, past portfolio links, and standard rates directly on my verified media kit here:\n👉 ${shareableUrl}\n\nLet me know if you're open to exploring a partnership!\n\nBest,\n${metrics.displayName || 'Creator'}`;
-                            } else if (goal === 'invite') {
-                                template = `Subject: Product Review Partnership Opportunity - @${cleanHandle}\n\nHey ${brand} Team,\n\nI’m reaching out because my community is highly engaged in the ${metrics.niche || 'content'} sector, where I have built an audience of over ${metrics.followerCount.toLocaleString()} followers. \n\nI'm planning a series of upcoming review showcases and wanted to see if we could feature your latest lineup. I’ve attached my public platform statistics, base pricing packages, and past project URLs here:\n👉 ${shareableUrl}\n\nLooking forward to hearing from you,\n\nCheers,\n${metrics.displayName || 'Creator'}`;
-                            } else {
-                                template = `Subject: Long-term Partnership Proposal: @${cleanHandle}\n\nDear ${brand} Team,\n\nFinding brands that align authentically with my audience is always my top priority. As a creator in the ${metrics.niche || 'creative'} industry with a community of ${metrics.followerCount.toLocaleString()} followers, I believe a multi-month partnership between us would deliver incredible value.\n\nI’ve put together a full breakdown of my custom bundle packages and live cross-platform channels on my personal landing page:\n👉 ${shareableUrl}\n\nLet me know who the best point of contact is to schedule a quick sync strategy call.\n\nWarmly,\n${metrics.displayName || 'Creator'}`;
-                            }
-
-                            document.getElementById('pitchOutput').value = template;
-                        }}
-                        className="bg-[#00f2fe] hover:bg-[#00d8e4] text-black font-bold px-4 py-1.5 text-xs rounded transition"
-                    >
-                        ⚡ Generate Draft Template
-                    </button>
-                </div>
-
-                <div className="relative">
-                    <textarea
-                        id="pitchOutput"
-                        rows={8}
-                        readOnly
-                        placeholder="Your customized pitch document will generate inside this field area..."
-                        className="bg-[#090d16] border border-gray-800 rounded-lg p-4 text-xs w-full focus:outline-none font-mono text-gray-300 resize-none"
-                    />
-                    <button
-                        type="button"
-                        onClick={() => {
-                            const text = document.getElementById('pitchOutput').value;
-                            if (!text) return;
-                            navigator.clipboard.writeText(text);
-                            alert('Pitch copied to clipboard! Ready to send.');
-                        }}
-                        className="absolute bottom-4 right-4 bg-[#1f2937] hover:bg-[#374151] text-white text-[10px] px-3 py-1 rounded border border-gray-700 transition"
-                    >
-                        📋 Copy Pitch Text
-                    </button>
-                </div>
             </div>
-
         </div>
     );
 }
