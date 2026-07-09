@@ -21,6 +21,11 @@ export default function CreatorDashboard() {
     const [githubLink, setGithubLink] = useState('');
     const [linkedinLink, setLinkedinLink] = useState('');
 
+    // --- New Packages State ---
+    const [packages, setPackages] = useState([]);
+    const [newPkg, setNewPkg] = useState({ title: '', description: '', price: '' });
+    const [isAddingPackage, setIsAddingPackage] = useState(false);
+
     const [isSyncing, setIsSyncing] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [alert, setAlert] = useState({ type: null, message: '' });
@@ -39,25 +44,47 @@ export default function CreatorDashboard() {
         }
     };
 
-    // 1. Initial Page Load Check: Safeguard the route by forcing a redirect if no session exists
+    // Route protection initialization
     useEffect(() => {
         const checkUserSession = async () => {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session) {
-                // Instantly bounce the unauthenticated visitor to the landing root directory
                 router.push('/');
             } else {
                 setIsLoadingSession(false);
+                // Fetch creator's existing packages once session is verified
+                fetchCreatorPackages(session.user.id);
             }
         };
         checkUserSession();
     }, [router]);
+
+    // Fetch existing packages associated with the active profile
+    const fetchCreatorPackages = async (userId) => {
+        const { data, error } = await supabase
+            .from('packages')
+            .select('*')
+            .eq('profile_id', userId)
+            .order('created_at', { ascending: true });
+
+        if (data && !error) {
+            setPackages(data);
+        }
+    };
 
     const handleInstagramSync = async () => {
         if (!handle.trim()) {
             triggerAlert('error', 'Please enter an Instagram handle before syncing.');
             return;
         }
+
+        // Live validation for illegal handle syntax characters
+        const invalidChars = /[^a-zA-Z0-9._]/g;
+        if (invalidChars.test(handle.replace(/@/g, ''))) {
+            triggerAlert('error', 'Instagram handle can only contain letters, numbers, periods, and underscores.');
+            return;
+        }
+
         setIsSyncing(true);
         try {
             const response = await fetch(`/api/instagram?handle=${encodeURIComponent(handle)}`);
@@ -82,7 +109,7 @@ export default function CreatorDashboard() {
         }
     };
 
-    // Automatically load existing profile info when the handle matches a record
+    // Automatically load existing profile data
     useEffect(() => {
         if (isLoadingSession || !handle.trim()) return;
         const cleanHandle = handle.replace(/@/g, '').trim().toLowerCase();
@@ -116,26 +143,44 @@ export default function CreatorDashboard() {
         return () => clearTimeout(delayDebounce);
     }, [handle, isLoadingSession]);
 
+    // Helper function to dynamically attach protocol string markers
+    const formatUrl = (url) => {
+        const trimmed = (url || '').trim();
+        if (!trimmed) return '';
+        if (/^https?:\/\//i.test(trimmed)) return trimmed;
+        return `https://${trimmed}`;
+    };
+
+    // Save profile updates
     const handleSaveForm = async (e) => {
         e.preventDefault();
+
+        const cleanHandle = handle.replace(/@/g, '').trim().toLowerCase();
+
+        // Validate Instagram Handle syntax constraints
+        const invalidChars = /[^a-zA-Z0-9._]/g;
+        if (invalidChars.test(cleanHandle)) {
+            triggerAlert('error', 'Saved handle can only contain letters, numbers, periods, or underscores.');
+            return;
+        }
+
         setIsSaving(true);
 
         try {
-            const cleanHandle = handle.replace(/@/g, '').trim().toLowerCase();
-
-            // Fetch current session data
-            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            const { data: sessionData } = await supabase.auth.getSession();
             const currentUserId = sessionData?.session?.user?.id;
 
-            // Strict blockade: If no id exists, do not call supabase.from().upsert()
-            if (sessionError || !currentUserId) {
-                setIsSaving(false);
-                triggerAlert('error', 'Missing Session: You are not recognized as a logged-in user. Redirecting...');
+            if (!currentUserId) {
+                triggerAlert('error', 'Missing Session. Redirecting...');
                 router.push('/');
                 return;
             }
 
-            // Securely execute upsert now that currentUserId is verified
+            // Secure validation filtering for external target URLs
+            const sanitizedPortfolio = formatUrl(portfolioLink);
+            const sanitizedGithub = formatUrl(githubLink);
+            const sanitizedLinkedin = formatUrl(linkedinLink);
+
             const { error } = await supabase
                 .from('profiles')
                 .upsert({
@@ -148,15 +193,18 @@ export default function CreatorDashboard() {
                     base_rate: Number(metrics.baseRate) || 0,
                     bio: metrics.bio || '',
                     avatar_url: metrics.profilePicUrl || '',
-                    portfolio_link: (portfolioLink || '').trim(),
-                    github_link: (githubLink || '').trim(),
-                    linkedin_link: (linkedinLink || '').trim()
+                    portfolio_link: sanitizedPortfolio,
+                    github_link: sanitizedGithub,
+                    linkedin_link: sanitizedLinkedin
                 }, { onConflict: 'id' });
 
             if (error) {
                 triggerAlert('error', `Supabase Error: ${error.message}`);
             } else {
-                triggerAlert('success', 'Media Kit updates successfully loaded to your pre-existing profiles table!');
+                setPortfolioLink(sanitizedPortfolio);
+                setGithubLink(sanitizedGithub);
+                setLinkedinLink(sanitizedLinkedin);
+                triggerAlert('success', 'Media Kit updates successfully loaded!');
             }
         } catch (err) {
             triggerAlert('error', `Runtime Error: ${err.message}`);
@@ -165,45 +213,57 @@ export default function CreatorDashboard() {
         }
     };
 
-    const handleDeleteProfile = async () => {
-        const cleanHandle = handle.replace(/@/g, '').trim().toLowerCase();
-        if (!cleanHandle) {
-            triggerAlert('error', 'No active handle profile specified to clear.');
+    // --- Create a Package ---
+    const handleAddPackage = async (e) => {
+        e.preventDefault();
+        if (!newPkg.title || !newPkg.price) {
+            triggerAlert('error', 'Package Title and Price are required.');
             return;
         }
 
-        if (window.confirm(`Are you sure you want to permanently clear field data for @${cleanHandle}?`)) {
-            const { error } = await supabase
-                .from('profiles')
-                .update({
-                    follower_count: 0,
-                    full_name: '',
-                    category: '',
-                    base_rate: 0,
-                    bio: '',
-                    avatar_url: '',
-                    portfolio_link: '',
-                    github_link: '',
-                    linkedin_link: ''
-                })
-                .eq('instagram_handle', cleanHandle);
+        if (Number(newPkg.price) < 0) {
+            triggerAlert('error', 'Price cannot be a negative value.');
+            return;
+        }
 
-            if (error) {
-                triggerAlert('error', `Reset Error: ${error.message}`);
-            } else {
-                setMetrics({
-                    followerCount: 0,
-                    displayName: '',
-                    niche: '',
-                    baseRate: 0,
-                    bio: '',
-                    profilePicUrl: ''
-                });
-                setPortfolioLink('');
-                setGithubLink('');
-                setLinkedinLink('');
-                triggerAlert('success', `Data fields reset successfully.`);
-            }
+        setIsAddingPackage(true);
+        const { data: sessionData } = await supabase.auth.getSession();
+        const currentUserId = sessionData?.session?.user?.id;
+
+        const { data, error } = await supabase
+            .from('packages')
+            .insert([{
+                profile_id: currentUserId,
+                title: newPkg.title.trim(),
+                description: (newPkg.description || '').trim(),
+                price: Number(newPkg.price) || 0
+            }])
+            .select();
+
+        if (error) {
+            triggerAlert('error', `Failed to add package: ${error.message}`);
+        } else {
+            setPackages([...packages, ...data]);
+            setNewPkg({ title: '', description: '', price: '' });
+            triggerAlert('success', 'New campaign package activated!');
+        }
+        setIsAddingPackage(false);
+    };
+
+    // --- Delete a Package ---
+    const handleDeletePackage = async (id) => {
+        if (!window.confirm('Delete this service package?')) return;
+
+        const { error } = await supabase
+            .from('packages')
+            .delete()
+            .eq('id', id);
+
+        if (error) {
+            triggerAlert('error', `Could not delete: ${error.message}`);
+        } else {
+            setPackages(packages.filter(p => p.id !== id));
+            triggerAlert('success', 'Package removed.');
         }
     };
 
@@ -217,26 +277,25 @@ export default function CreatorDashboard() {
 
     const cleanHandlePath = handle.replace(/@/g, '').trim().toLowerCase();
 
-    // Prevent flashing layout layout structures while user checking is processing 
     if (isLoadingSession) {
         return (
-            <div className="min-h-screen bg-[#090d16] flex items-center justify-center text-white font-sans">
+            <div className="min-h-screen bg-[#090d16] flex items-center justify-center text-white">
                 <div className="text-center">
                     <div className="w-8 h-8 border-4 border-[#00f2fe] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-                    <p className="text-sm text-gray-400">Verifying security session context...</p>
+                    <p className="text-sm text-gray-400">Verifying session context...</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-[#090d16] text-white font-sans p-8 flex flex-col items-center justify-center">
+        <div className="min-h-screen bg-[#090d16] text-white p-8 flex flex-col items-center justify-center font-sans">
             <div className="w-full max-w-4xl">
 
                 <div className="flex justify-between items-center mb-8">
                     <div>
                         <h1 className="text-3xl font-bold tracking-tight">Creator Dashboard</h1>
-                        <p className="text-gray-400 text-sm mt-1">Configure profile metrics for active creator sessions</p>
+                        <p className="text-gray-400 text-sm mt-1">Configure profile metrics and campaign rates</p>
                     </div>
                     <button onClick={handleSignOut} className="bg-[#1a2333] hover:bg-red-900/40 hover:text-red-400 transition text-sm px-4 py-2 rounded-md border border-gray-800">
                         Sign Out
@@ -249,8 +308,8 @@ export default function CreatorDashboard() {
                     </div>
                 )}
 
-                <form onSubmit={handleSaveForm} className="bg-[#111827] border border-gray-800 rounded-xl p-8 shadow-xl">
-
+                {/* MAIN FORM */}
+                <form onSubmit={handleSaveForm} className="bg-[#111827] border border-gray-800 rounded-xl p-8 shadow-xl mb-8">
                     <div className="flex items-center space-x-4 mb-8">
                         <div className="w-16 h-16 rounded-full bg-[#1f2937] border-2 border-[#10b981] flex items-center justify-center overflow-hidden">
                             {metrics.profilePicUrl ? (
@@ -269,14 +328,8 @@ export default function CreatorDashboard() {
                         <div>
                             <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Instagram Handle</label>
                             <div className="flex space-x-2">
-                                <input
-                                    type="text" value={handle} onChange={(e) => setHandle(e.target.value)}
-                                    className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700 text-white"
-                                />
-                                <button
-                                    type="button" onClick={handleInstagramSync} disabled={isSyncing}
-                                    className="bg-[#064e3b] hover:bg-[#047857] text-[#10b981] font-semibold px-4 py-2.5 rounded-md text-sm border border-[#065f46] transition"
-                                >
+                                <input type="text" value={handle} onChange={(e) => setHandle(e.target.value)} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700 text-white" />
+                                <button type="button" onClick={handleInstagramSync} disabled={isSyncing} className="bg-[#064e3b] hover:bg-[#047857] text-[#10b981] font-semibold px-4 py-2.5 rounded-md text-sm border border-[#065f46] transition disabled:opacity-50" >
                                     {isSyncing ? 'Syncing...' : 'Sync'}
                                 </button>
                             </div>
@@ -285,16 +338,10 @@ export default function CreatorDashboard() {
                         <div>
                             <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Generated Username URL (Auto)</label>
                             <div className="flex space-x-2">
-                                <Link
-                                    href={`/${cleanHandlePath}`}
-                                    className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full text-blue-400 hover:text-blue-300 transition underline flex items-center truncate"
-                                >
+                                <Link href={`/${cleanHandlePath}`} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full text-blue-400 hover:text-blue-300 transition underline flex items-center truncate" >
                                     {cleanHandlePath ? `/${cleanHandlePath}` : '/'}
                                 </Link>
-                                <button
-                                    type="button" onClick={handleCopyLink}
-                                    className="bg-[#1f2937] hover:bg-[#374151] border border-gray-700 px-4 py-2.5 rounded-md text-xs font-medium transition min-w-[85px]"
-                                >
+                                <button type="button" onClick={handleCopyLink} className="bg-[#1f2937] hover:bg-[#374151] border border-gray-700 px-4 py-2.5 rounded-md text-xs font-medium transition min-w-[85px]" >
                                     {copied ? 'Copied! ✅' : 'Copy Link'}
                                 </button>
                             </div>
@@ -317,22 +364,22 @@ export default function CreatorDashboard() {
 
                         <div>
                             <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Base Sponsorship Rate ($)</label>
-                            <input type="number" value={metrics.baseRate || ''} onChange={(e) => setMetrics({ ...metrics, baseRate: Number(e.target.value) })} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700" />
+                            <input type="number" min="0" value={metrics.baseRate || ''} onChange={(e) => setMetrics({ ...metrics, baseRate: Math.max(0, Number(e.target.value)) })} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700" />
                         </div>
 
                         <div>
                             <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Personal Portfolio Link</label>
-                            <input type="url" placeholder="https://yourportfolio.com" value={portfolioLink} onChange={(e) => setPortfolioLink(e.target.value)} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700 text-white" />
+                            <input type="text" placeholder="yourportfolio.com" value={portfolioLink} onChange={(e) => setPortfolioLink(e.target.value)} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700" />
                         </div>
 
                         <div>
                             <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">GitHub Profile Link</label>
-                            <input type="url" placeholder="https://github.com/yourusername" value={githubLink} onChange={(e) => setGithubLink(e.target.value)} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700 text-white" />
+                            <input type="text" placeholder="github.com/username" value={githubLink} onChange={(e) => setGithubLink(e.target.value)} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700" />
                         </div>
 
                         <div className="md:col-span-2">
                             <label className="block text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">LinkedIn Profile Link</label>
-                            <input type="url" placeholder="https://linkedin.com/in/yourusername" value={linkedinLink} onChange={(e) => setLinkedinLink(e.target.value)} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700 text-white" />
+                            <input type="text" placeholder="linkedin.com/in/username" value={linkedinLink} onChange={(e) => setLinkedinLink(e.target.value)} className="bg-[#090d16] border border-gray-800 rounded-md px-4 py-2.5 text-sm w-full focus:outline-none focus:border-gray-700" />
                         </div>
                     </div>
 
@@ -342,16 +389,137 @@ export default function CreatorDashboard() {
                     </div>
 
                     <div className="flex justify-between items-center pt-4 border-t border-gray-800">
-                        <button type="submit" disabled={isSaving} className="bg-[#00f2fe] hover:bg-[#00d8e4] text-black font-bold px-6 py-2.5 rounded-md text-sm transition shadow-lg shadow-[#00f2fe]/10">
-                            {isSaving ? 'Saving Changes...' : 'Save and Create Media Kit'}
-                        </button>
-                        <button type="button" onClick={handleDeleteProfile} className="bg-transparent hover:bg-red-950/30 text-red-500 hover:text-red-400 font-semibold px-4 py-2.5 rounded-md text-sm border border-red-900/50 hover:border-red-500/50 transition">
-                            Reset Fields
+                        <button type="submit" disabled={isSaving} className="bg-[#00f2fe] hover:bg-[#00d8e4] text-black font-bold px-6 py-2.5 rounded-md text-sm transition shadow-lg disabled:opacity-50">
+                            {isSaving ? 'Saving Changes...' : 'Save Profile Core'}
                         </button>
                     </div>
-
                 </form>
+
+                {/* --- NEW SERVICE PACKAGES CONFIGURATOR --- */}
+                <div className="bg-[#111827] border border-gray-800 rounded-xl p-8 shadow-xl">
+                    <h2 className="text-xl font-bold mb-2">Sponsorship Packages & Bundles</h2>
+                    <p className="text-xs text-gray-400 mb-6">Create predefined service rates for brands to instantly review and order.</p>
+
+                    <form onSubmit={handleAddPackage} className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-[#090d16] p-4 rounded-lg border border-gray-800 mb-6">
+                        <div className="md:col-span-2">
+                            <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Package Title</label>
+                            <input type="text" placeholder="e.g., 1 Dedicated IG Reel + 1 Story Link" value={newPkg.title} onChange={e => setNewPkg({ ...newPkg, title: e.target.value })} className="bg-[#111827] border border-gray-800 rounded px-3 py-2 text-sm w-full focus:outline-none text-white" />
+                        </div>
+                        <div>
+                            <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Price ($)</label>
+                            <input type="number" placeholder="450" value={newPkg.price} onChange={e => setNewPkg({ ...newPkg, price: e.target.value })} className="bg-[#111827] border border-gray-800 rounded px-3 py-2 text-sm w-full focus:outline-none text-white" />
+                        </div>
+                        <div className="md:col-span-3">
+                            <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Package Deliverables Description</label>
+                            <textarea rows={2} placeholder="Detail exact timeline deliverables, usage rights terms, or product specifications..." value={newPkg.description} onChange={e => setNewPkg({ ...newPkg, description: e.target.value })} className="bg-[#111827] border border-gray-800 rounded px-3 py-2 text-sm w-full focus:outline-none resize-none text-white" />
+                        </div>
+                        <div className="md:col-span-3 text-right">
+                            <button type="submit" disabled={isAddingPackage} className="bg-[#10b981] hover:bg-[#059669] text-white px-4 py-1.5 text-xs font-bold rounded transition disabled:opacity-50">
+                                {isAddingPackage ? 'Adding...' : '+ Add Package Bundle'}
+                            </button>
+                        </div>
+                    </form>
+
+                    {/* Live List Display */}
+                    <div className="space-y-3">
+                        {packages.length === 0 ? (
+                            <p className="text-xs text-gray-500 italic">No packages configured yet. Create your first bundle bundle layout above!</p>
+                        ) : (
+                            packages.map((pkg) => (
+                                <div key={pkg.id} className="flex justify-between items-start border border-gray-800/60 bg-[#090d16]/40 p-4 rounded-lg">
+                                    <div className="max-w-[80%]">
+                                        <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                                            {pkg.title} <span className="text-[#00f2fe] text-xs font-medium">${pkg.price}</span>
+                                        </h4>
+                                        <p className="text-xs text-gray-400 mt-1 whitespace-pre-wrap">{pkg.description || 'No description listed.'}</p>
+                                    </div>
+                                    <button type="button" onClick={() => handleDeletePackage(pkg.id)} className="text-xs text-red-500 hover:text-red-400 bg-red-950/10 border border-red-900/30 hover:border-red-500/50 px-2 py-1 rounded transition">
+                                        Remove
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                </div>
+
             </div>
+            {/* --- NEW BRAND PITCH TEMPLATE GENERATOR --- */}
+            <div className="bg-[#111827] border border-gray-800 rounded-xl p-8 shadow-xl mt-8">
+                <h2 className="text-xl font-bold mb-2">Instant Brand Pitch Generator</h2>
+                <p className="text-xs text-gray-400 mb-6">Generate highly converting cold outreach emails dynamically populated with your media kit metrics.</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Target Brand Name</label>
+                        <input
+                            type="text"
+                            placeholder="e.g., Nike, Adobe, Sony"
+                            id="targetBrand"
+                            className="bg-[#090d16] border border-gray-800 rounded px-3 py-2 text-sm w-full focus:outline-none text-white"
+                        />
+                    </div>
+                    <div>
+                        <label className="block text-[10px] uppercase font-bold text-gray-400 mb-1">Pitch Style / Goal</label>
+                        <select
+                            id="pitchGoal"
+                            className="bg-[#090d16] border border-gray-800 rounded px-3 py-2 text-sm w-full focus:outline-none text-white"
+                        >
+                            <option value="cold">Cold Collaboration Proposal</option>
+                            <option value="invite">Invite to Product Review</option>
+                            <option value="longterm">Long-term Ambassadorship</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div className="text-right mb-4">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const brand = document.getElementById('targetBrand').value.trim() || '[Brand Name]';
+                            const goal = document.getElementById('pitchGoal').value;
+                            const cleanHandle = handle.replace(/@/g, '').trim();
+                            const shareableUrl = `${window.location.origin}/${cleanHandle}`;
+
+                            let template = '';
+                            if (goal === 'cold') {
+                                template = `Subject: Collaboration Inquiry: @${cleanHandle} x ${brand}\n\nHi ${brand} Team,\n\nI’ve been following your brand and absolutely love your products. My name is ${metrics.displayName || 'a content creator'}, and I run a digital community centered around the ${metrics.niche || 'lifestyle'} space with over ${metrics.followerCount.toLocaleString()} active followers.\n\nI’d love to discuss potential content integration opportunities for your upcoming campaigns. You can check out my complete live audience metrics, past portfolio links, and standard rates directly on my verified media kit here:\n👉 ${shareableUrl}\n\nLet me know if you're open to exploring a partnership!\n\nBest,\n${metrics.displayName || 'Creator'}`;
+                            } else if (goal === 'invite') {
+                                template = `Subject: Product Review Partnership Opportunity - @${cleanHandle}\n\nHey ${brand} Team,\n\nI’m reaching out because my community is highly engaged in the ${metrics.niche || 'content'} sector, where I have built an audience of over ${metrics.followerCount.toLocaleString()} followers. \n\nI'm planning a series of upcoming review showcases and wanted to see if we could feature your latest lineup. I’ve attached my public platform statistics, base pricing packages, and past project URLs here:\n👉 ${shareableUrl}\n\nLooking forward to hearing from you,\n\nCheers,\n${metrics.displayName || 'Creator'}`;
+                            } else {
+                                template = `Subject: Long-term Partnership Proposal: @${cleanHandle}\n\nDear ${brand} Team,\n\nFinding brands that align authentically with my audience is always my top priority. As a creator in the ${metrics.niche || 'creative'} industry with a community of ${metrics.followerCount.toLocaleString()} followers, I believe a multi-month partnership between us would deliver incredible value.\n\nI’ve put together a full breakdown of my custom bundle packages and live cross-platform channels on my personal landing page:\n👉 ${shareableUrl}\n\nLet me know who the best point of contact is to schedule a quick sync strategy call.\n\nWarmly,\n${metrics.displayName || 'Creator'}`;
+                            }
+
+                            document.getElementById('pitchOutput').value = template;
+                        }}
+                        className="bg-[#00f2fe] hover:bg-[#00d8e4] text-black font-bold px-4 py-1.5 text-xs rounded transition"
+                    >
+                        ⚡ Generate Draft Template
+                    </button>
+                </div>
+
+                <div className="relative">
+                    <textarea
+                        id="pitchOutput"
+                        rows={8}
+                        readOnly
+                        placeholder="Your customized pitch document will generate inside this field area..."
+                        className="bg-[#090d16] border border-gray-800 rounded-lg p-4 text-xs w-full focus:outline-none font-mono text-gray-300 resize-none"
+                    />
+                    <button
+                        type="button"
+                        onClick={() => {
+                            const text = document.getElementById('pitchOutput').value;
+                            if (!text) return;
+                            navigator.clipboard.writeText(text);
+                            alert('Pitch copied to clipboard! Ready to send.');
+                        }}
+                        className="absolute bottom-4 right-4 bg-[#1f2937] hover:bg-[#374151] text-white text-[10px] px-3 py-1 rounded border border-gray-700 transition"
+                    >
+                        📋 Copy Pitch Text
+                    </button>
+                </div>
+            </div>
+
         </div>
     );
 }
